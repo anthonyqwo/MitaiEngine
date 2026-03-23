@@ -13,9 +13,11 @@
 class Shader {
 public:
     unsigned int ID;
+    bool hasTessellation;
 
     // constructor generates the shader on the fly
     Shader(const char* vertexPath, const char* fragmentPath, const char* geometryPath = nullptr, const char* tessControlPath = nullptr, const char* tessEvalPath = nullptr) {
+        hasTessellation = (tessControlPath != nullptr || tessEvalPath != nullptr);
         // 1. retrieve the vertex/fragment source code from filePath
         std::string vertexCode, fragmentCode, geometryCode, tessControlCode, tessEvalCode;
         auto readFile = [](const char* path, std::string& code) {

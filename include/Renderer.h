@@ -47,6 +47,15 @@ public:
         for (const auto& e : entities) {
             if (!e.visible) continue;
             
+            // --- 核心邏輯修正：互斥渲染 ---
+            if (shader.hasTessellation) {
+                // 如果是進階 Shader (有 Tessellation)，只渲染 ADV_SPHERE (與粒子，如果有的話)
+                if (e.type != ADV_SPHERE && e.type != PARTICLE) continue;
+            } else {
+                // 如果是普通 Shader，跳過需要細分的物件
+                if (e.type == ADV_SPHERE || e.type == PARTICLE) continue;
+            }
+            
             glm::mat4 model = e.getModelMatrix();
             shader.setMat4("model", model);
 
@@ -102,6 +111,10 @@ public:
                 glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, whiteTex); 
                 glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, waterNorm);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
+            } else if (e.type == ADV_SPHERE) {
+                glBindVertexArray(icoVAO); // 使用正 20 體作為細分基礎
+                glPatchParameteri(GL_PATCH_VERTICES, 3);
+                glDrawArrays(GL_PATCHES, 0, icoCount);
             }
         }
     }

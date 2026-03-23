@@ -55,6 +55,8 @@ int main() {
     Shader pointShadowShader("shaders/point_shadow_v.glsl", "shaders/point_shadow_f.glsl", "shaders/point_shadow_g.glsl");
     Shader advShader("shaders/adv_v.glsl", "shaders/adv_f.glsl", "shaders/adv_g.glsl", "shaders/adv_tc.glsl", "shaders/adv_te.glsl");
     Shader particleShader("shaders/particle_v.glsl", "shaders/particle_f.glsl", "shaders/particle_g.glsl", "shaders/particle_tc.glsl", "shaders/particle_te.glsl");
+    Shader advShadowShader("shaders/adv_v.glsl", "shaders/shadow_f.glsl", "shaders/adv_g.glsl", "shaders/adv_tc.glsl", "shaders/adv_te.glsl");
+    Shader advPointShadowShader("shaders/adv_v.glsl", "shaders/point_shadow_f.glsl", "shaders/adv_point_shadow_g.glsl", "shaders/adv_tc.glsl", "shaders/adv_te.glsl");
 
     float pSpread = 2.0f, pSize = 0.4f, pCount = 256.0f;
 
@@ -194,7 +196,7 @@ int main() {
     Entity sphereEnt("Standard Sphere", SPHERE, glm::vec3(2, 1, -2), glm::vec3(1, 0.5f, 0));
     sphereEnt.roughness=0.05f; sphereEnt.metallic=1.0f; sphereEnt.ambient=0.3f; sphereEnt.reflectivity=0.45f;
     sceneEntities.push_back(sphereEnt);
-    Entity icoEnt("Icosahedron", ICOSAHEDRON, glm::vec3(-2, 0.5f, 2), glm::vec3(1, 0.2f, 0.5f));
+    Entity icoEnt("Advanced Sphere", ADV_SPHERE, glm::vec3(-2, 0.5f, 2), glm::vec3(1, 0.2f, 0.5f));
     icoEnt.roughness=0.15f; icoEnt.metallic=1.0f; icoEnt.ambient=0.4f; icoEnt.reflectivity=0.3f;
     sceneEntities.push_back(icoEnt);
     Entity waterEntity("Water Surface", WATER, glm::vec3(0, -0.49f, 0), glm::vec3(0.1f, 0.3f, 0.6f));
@@ -227,10 +229,18 @@ int main() {
 
         // 1. Sun Shadow Pass
         glm::mat4 lProj=glm::ortho(-10.0f,10.0f,-10.0f,10.0f,1.0f,30.0f), lView=glm::lookAt(sP,glm::vec3(0),glm::vec3(0,1,0)), lSpace=lProj*lView;
-        shadowShader.use(); shadowShader.setMat4("lightSpaceMatrix", lSpace);
         glViewport(0,0,SHADOW_WIDTH,SHADOW_HEIGHT); glBindFramebuffer(GL_FRAMEBUFFER, depthFBO); glClear(GL_DEPTH_BUFFER_BIT);
         glEnable(GL_CULL_FACE); glCullFace(GL_FRONT);
+        
+        // Pass A: 普通物件陰影
+        shadowShader.use(); shadowShader.setMat4("lightSpaceMatrix", lSpace);
         Renderer::renderEntities(shadowShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, 0,0,0,0,0,0, whiteTex, flatNormalTex, useNormalMap, glm::vec3(0));
+        
+        // Pass B: 進階物件陰影 (需同步位移)
+        advShadowShader.use(); advShadowShader.setMat4("lightSpaceMatrix", lSpace);
+        advShadowShader.setFloat("tessLevel", tessLevel); advShadowShader.setFloat("explosionFactor", explosionFactor);
+        Renderer::renderEntities(advShadowShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, 0,0,0,0,0,0, whiteTex, flatNormalTex, useNormalMap, glm::vec3(0));
+        
         glCullFace(GL_BACK); glDisable(GL_CULL_FACE); glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         // 2. Point Light Shadow Pass
@@ -241,9 +251,17 @@ int main() {
         pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(0,0,1),glm::vec3(0,-1,0))); pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(0,0,-1),glm::vec3(0,-1,0)));
         glViewport(0,0,1024,1024); glBindFramebuffer(GL_FRAMEBUFFER, pointShadowFBO); glClear(GL_DEPTH_BUFFER_BIT);
 
+        // Pass A: 普通物件點陰影
         pointShadowShader.use(); for(int i=0;i<6;i++) pointShadowShader.setMat4("shadowMatrices["+std::to_string(i)+"]", pMats[i]);
         pointShadowShader.setFloat("far_plane", far_p); pointShadowShader.setVec3("lightPos", pP);
         Renderer::renderEntities(pointShadowShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, 0,0,0,0,0,0, whiteTex, flatNormalTex, useNormalMap, glm::vec3(0));
+        
+        // Pass B: 進階物件點陰影
+        advPointShadowShader.use(); for(int i=0;i<6;i++) advPointShadowShader.setMat4("shadowMatrices["+std::to_string(i)+"]", pMats[i]);
+        advPointShadowShader.setFloat("far_plane", far_p); advPointShadowShader.setVec3("lightPos", pP);
+        advPointShadowShader.setFloat("tessLevel", tessLevel); advPointShadowShader.setFloat("explosionFactor", explosionFactor);
+        Renderer::renderEntities(advPointShadowShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, 0,0,0,0,0,0, whiteTex, flatNormalTex, useNormalMap, glm::vec3(0));
+        
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         // 3. Main Pass
@@ -266,7 +284,35 @@ int main() {
 
         // 3.2 繪製場景實體 (包含透明水體)
         glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        
+        // Pass A: 標準 PBR 物件
         Renderer::renderEntities(ourShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, texDiff, texSpec, texNorm, floorDiff, floorNorm, waterNorm, whiteTex, flatNormalTex, useNormalMap, camera.Position);
+        
+        // Pass B: 進階細分 PBR 物件
+        advShader.use();
+        advShader.setMat4("projection", glm::perspective(glm::radians(camera.Zoom),(float)SCR_WIDTH/SCR_HEIGHT,0.1f,100.0f));
+        advShader.setMat4("view", camera.GetViewMatrix());
+        advShader.setMat4("lightSpaceMatrix", lSpace);
+        advShader.setVec3("viewPos", camera.Position);
+        advShader.setFloat("far_plane", far_p);
+        advShader.setFloat("tessLevel", tessLevel);
+        advShader.setFloat("explosionFactor", explosionFactor);
+        
+        // --- 補齊 IBL 資源綁定 ---
+        advShader.setInt("shadowMap", 3);
+        advShader.setInt("skybox", 4);
+        advShader.setInt("irradianceMap", 5);
+        advShader.setInt("prefilterMap", 6);
+        advShader.setInt("brdfLUT", 7);
+        advShader.setInt("pointShadowMap", 8);
+        
+        glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, depthMap);
+        glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_CUBE_MAP, irradianceMap);
+        glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_CUBE_MAP, prefilterMap);
+        glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, brdfLUT);
+        glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_CUBE_MAP, depthCubemap);
+
+        Renderer::renderEntities(advShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, texDiff, texSpec, texNorm, floorDiff, floorNorm, waterNorm, whiteTex, flatNormalTex, useNormalMap, camera.Position);
         
         // 3.3 繪製粒子與進階效果
         particleShader.use();
@@ -274,16 +320,13 @@ int main() {
         particleShader.setMat4("view", camera.GetViewMatrix());
         Renderer::renderParticles(particleShader, sceneEntities, (float)glfwGetTime(), pSpread, pSize, pCount);
 
-        advShader.use(); advShader.setMat4("projection", glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH/SCR_HEIGHT, 0.1f, 100.0f));
-        advShader.setMat4("view", camera.GetViewMatrix()); advShader.setMat4("model", glm::translate(glm::mat4(1), glm::vec3(-3,3,-3)));
-        advShader.setVec3("objectColor", glm::vec3(0.2,0.8,0.2)); advShader.setFloat("tessLevel", tessLevel); advShader.setFloat("explosionFactor", explosionFactor);
-        glBindVertexArray(tVAO); glPatchParameteri(GL_PATCH_VERTICES, 3); glDrawElements(GL_PATCHES, 12, GL_UNSIGNED_INT, 0);
         glDisable(GL_BLEND);
 
         ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplGlfw_NewFrame(); ImGui::NewFrame();
         { ImGui::Begin("Scene Hierarchy");
           if (ImGui::Button("Add Cube")) sceneEntities.push_back(Entity("New Cube", CUBE, camera.Position + camera.Front*2.0f));
           ImGui::SameLine(); if (ImGui::Button("Add Sphere")) sceneEntities.push_back(Entity("New Sphere", SPHERE, camera.Position + camera.Front*2.0f));
+          ImGui::SameLine(); if (ImGui::Button("Add Adv Sphere")) sceneEntities.push_back(Entity("Adv Sphere", ADV_SPHERE, camera.Position + camera.Front*2.0f, glm::vec3(0.8,0.2,0.5)));
           ImGui::SameLine(); if (ImGui::Button("Add Water")) { Entity w("Water", WATER, camera.Position + camera.Front*5.0f, glm::vec3(0.1,0.4,0.8)); w.roughness=0.05f; w.reflectivity=0.4f; sceneEntities.push_back(w); }
           ImGui::SameLine(); if (ImGui::Button("Add Sun")) { Entity s("Sun", CUBE, camera.Position + camera.Front*5.0f, glm::vec3(1,0.95,0.8)); s.isLight=true; s.lightColor=glm::vec3(1,0.95,0.8); s.lightIntensity=2.0f; s.scale=glm::vec3(0.2f); sceneEntities.push_back(s); }
           ImGui::SameLine(); if (ImGui::Button("Add Light")) { Entity p("Point Light", CUBE, camera.Position + camera.Front*3.0f, glm::vec3(1,0.5,0)); p.isLight=true; p.lightColor=glm::vec3(1,0.5,0); p.lightIntensity=2.0f; p.scale=glm::vec3(0.2f); sceneEntities.push_back(p); }
