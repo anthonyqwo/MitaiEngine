@@ -221,5 +221,14 @@ void main() {
     vec3 color = directLo + ambient;
     color = color / (color + vec3(1.0)); 
     color = pow(color, vec3(1.0/2.2));   
-    FragColor = vec4(color, 1.0);
+    
+    // 5. 透明度處理 (基於菲涅耳)
+    float alpha = 1.0;
+    if(isWater) {
+        // 菲涅耳透明度：垂直觀察(NoV=1)時透明度最低，掠射角(NoV=0)時不透明
+        float fresnelAlpha = pow(1.0 - NoV, 4.0); 
+        alpha = clamp(0.3 + fresnelAlpha * 0.6, 0.0, 1.0); // 基礎透明度 0.3
+    }
+    
+    FragColor = vec4(color, alpha);
 }

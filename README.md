@@ -1,7 +1,12 @@
-# Modern PBR Game Engine (OpenGL 4.5)
+# Mitai Game Engine (OpenGL 4.5)
+
+![](images\demo.png)
+
 
 這是一個基於物理性渲染 (PBR) 架構的 3D 渲染引擎，整合了基於影像的照明 (IBL) 與動態水體模擬技術。
 This is a 3D rendering engine built on a Physically Based Rendering (PBR) architecture, integrating Image-Based Lighting (IBL) and dynamic water surface simulation.
+
+![](images\gif_demo.gif)
 
 ---
 

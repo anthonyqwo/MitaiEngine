@@ -25,7 +25,7 @@ void framebuffer_size_callback(GLFWwindow* window, int width, int height);
 
 std::vector<Entity> sceneEntities;
 int selectedEntityIndex = -1;
-unsigned int SCR_WIDTH = 1280, SCR_HEIGHT = 720;
+unsigned int SCR_WIDTH = 1920, SCR_HEIGHT = 1080;
 const unsigned int SHADOW_WIDTH = 2048, SHADOW_HEIGHT = 2048;
 Camera camera(glm::vec3(0.0f, 2.0f, 8.0f));
 float lastX = SCR_WIDTH / 2.0f, lastY = SCR_HEIGHT / 2.0f;
@@ -56,7 +56,7 @@ int main() {
     Shader advShader("shaders/adv_v.glsl", "shaders/adv_f.glsl", "shaders/adv_g.glsl", "shaders/adv_tc.glsl", "shaders/adv_te.glsl");
     Shader particleShader("shaders/particle_v.glsl", "shaders/particle_f.glsl", "shaders/particle_g.glsl", "shaders/particle_tc.glsl", "shaders/particle_te.glsl");
 
-    float pSpread = 1.5f, pSize = 0.1f, pCount = 64.0f;
+    float pSpread = 2.0f, pSize = 0.4f, pCount = 256.0f;
 
     // --- 幾何體頂點定義 (Pos, Norm, UV, Tangent) -> Stride 為 11 ---
     float cubeVertices[] = {
@@ -206,7 +206,7 @@ int main() {
     Entity lampEnt("Point Light", CUBE, glm::vec3(-2.0f, 2.0f, 1.0f), glm::vec3(1.0f, 0.5f, 0.0f));
     lampEnt.isLight=true; lampEnt.lightColor=glm::vec3(1.0f, 0.5f, 0.0f); lampEnt.lightIntensity=2.0f; lampEnt.scale=glm::vec3(0.2f);
     sceneEntities.push_back(lampEnt);
-    sceneEntities.push_back(Entity("Particle Source", PARTICLE, glm::vec3(0, 1.0f, 0), glm::vec3(1.0f, 0.5f, 0.1f)));
+    sceneEntities.push_back(Entity("Particle Source", PARTICLE, glm::vec3(0, 1.0f, 0), glm::vec3(124.0f/255.0f, 117.0f/255.0f, 112.0f/255.0f)));
 
     ourShader.use(); ourShader.setInt("texture_diffuse", 0); ourShader.setInt("texture_specular", 1); ourShader.setInt("texture_normal", 2); 
     ourShader.setInt("shadowMap", 3); ourShader.setInt("skybox", 4); ourShader.setInt("irradianceMap", 5); 
@@ -257,8 +257,18 @@ int main() {
         glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_CUBE_MAP, prefilterMap);
         glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, brdfLUT);
         glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_CUBE_MAP, depthCubemap);
-        Renderer::renderEntities(ourShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, texDiff, texSpec, texNorm, floorDiff, floorNorm, waterNorm, whiteTex, flatNormalTex, useNormalMap, camera.Position);
 
+        // 3.1 繪製天空盒 (作為背景，必須在透明物件之前)
+        glDepthFunc(GL_LEQUAL); skyboxShader.use();
+        skyboxShader.setMat4("view", glm::mat4(glm::mat3(camera.GetViewMatrix()))); skyboxShader.setMat4("projection", glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH/SCR_HEIGHT, 0.1f, 100.0f));
+        glBindVertexArray(skVAO); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_CUBE_MAP, skybox); glDrawArrays(GL_TRIANGLES, 0, 36);
+        glDepthFunc(GL_LESS);
+
+        // 3.2 繪製場景實體 (包含透明水體)
+        glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        Renderer::renderEntities(ourShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, texDiff, texSpec, texNorm, floorDiff, floorNorm, waterNorm, whiteTex, flatNormalTex, useNormalMap, camera.Position);
+        
+        // 3.3 繪製粒子與進階效果
         particleShader.use();
         particleShader.setMat4("projection", glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / SCR_HEIGHT, 0.1f, 100.0f));
         particleShader.setMat4("view", camera.GetViewMatrix());
@@ -268,12 +278,7 @@ int main() {
         advShader.setMat4("view", camera.GetViewMatrix()); advShader.setMat4("model", glm::translate(glm::mat4(1), glm::vec3(-3,3,-3)));
         advShader.setVec3("objectColor", glm::vec3(0.2,0.8,0.2)); advShader.setFloat("tessLevel", tessLevel); advShader.setFloat("explosionFactor", explosionFactor);
         glBindVertexArray(tVAO); glPatchParameteri(GL_PATCH_VERTICES, 3); glDrawElements(GL_PATCHES, 12, GL_UNSIGNED_INT, 0);
-
-        // --- Skybox 繪製 ---
-        glDepthFunc(GL_LEQUAL); skyboxShader.use();
-        skyboxShader.setMat4("view", glm::mat4(glm::mat3(camera.GetViewMatrix()))); skyboxShader.setMat4("projection", glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH/SCR_HEIGHT, 0.1f, 100.0f));
-        glBindVertexArray(skVAO); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_CUBE_MAP, skybox); glDrawArrays(GL_TRIANGLES, 0, 36);
-        glDepthFunc(GL_LESS);
+        glDisable(GL_BLEND);
 
         ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplGlfw_NewFrame(); ImGui::NewFrame();
         { ImGui::Begin("Scene Hierarchy");
