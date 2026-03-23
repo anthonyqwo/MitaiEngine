@@ -16,6 +16,7 @@ public:
                              unsigned int floorDiff, unsigned int floorNorm,
                              unsigned int waterNorm,
                              unsigned int whiteTex,
+                             unsigned int flatNormalTex,
                              bool useNormalMap,
                              glm::vec3 viewPos) {
         
@@ -87,13 +88,13 @@ public:
                 glBindVertexArray(sphereVAO); 
                 glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, whiteTex);
                 glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, whiteTex);
-                glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, whiteTex);
+                glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, flatNormalTex);
                 glDrawElements(GL_TRIANGLES, sphereCount, GL_UNSIGNED_INT, 0);
             } else if (e.type == ICOSAHEDRON) {
                 glBindVertexArray(icoVAO); 
                 glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, whiteTex);
                 glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, whiteTex);
-                glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, whiteTex);
+                glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, flatNormalTex);
                 glDrawArrays(GL_TRIANGLES, 0, icoCount);
             } else if (e.type == WATER) {
                 glBindVertexArray(floorVAO); 

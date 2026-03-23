@@ -136,10 +136,12 @@ void main() {
         vec3 n2 = texture(texture_normal, uv2).rgb * 2.0 - 1.0;
         vec3 n3 = texture(texture_normal, uv3).rgb * 2.0 - 1.0;
         vec3 mixedNormal = normalize(n1 + n2 * 0.6 + n3 * 0.3);
+        // 水體擾動保持強烈
         mixedNormal.xy *= 2.5; 
         N = normalize(TBN * normalize(mixedNormal));
     } else if(useNormalMap) {
         vec3 tangentNormal = texture(texture_normal, fs_in.TexCoords).rgb * 2.0 - 1.0;
+        // 如果是平坦法線 (0,0,1)，xy 為 0，乘以 1.5 仍為 0，確保一致性
         tangentNormal.xy *= 1.5;
         N = normalize(TBN * normalize(tangentNormal));
     } else {

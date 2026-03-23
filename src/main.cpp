@@ -178,7 +178,7 @@ int main() {
 
     unsigned int texDiff = loadTexture("assets/container.jpg"), texSpec = loadTexture("assets/container_specular.png"), texNorm = loadTexture("assets/container_normal.png");
     unsigned int waterNorm = loadTexture("assets/water_normal.jpg");
-    unsigned int floorDiff = loadTexture("assets/wall.jpg"), floorNorm = loadTexture("assets/wall_normal.jpg"), whiteTex = createSolidTexture(255, 255, 255);
+    unsigned int floorDiff = loadTexture("assets/wall.jpg"), floorNorm = loadTexture("assets/wall_normal.jpg"), whiteTex = createSolidTexture(255, 255, 255), flatNormalTex = createSolidTexture(128, 128, 255);
     unsigned int skybox = loadCubemap({"assets/skybox/right.jpg","assets/skybox/left.jpg","assets/skybox/top.jpg","assets/skybox/bottom.jpg","assets/skybox/front.jpg","assets/skybox/back.jpg"});
 
     unsigned int irradianceMap, prefilterMap, brdfLUT;
@@ -230,7 +230,7 @@ int main() {
         shadowShader.use(); shadowShader.setMat4("lightSpaceMatrix", lSpace);
         glViewport(0,0,SHADOW_WIDTH,SHADOW_HEIGHT); glBindFramebuffer(GL_FRAMEBUFFER, depthFBO); glClear(GL_DEPTH_BUFFER_BIT);
         glEnable(GL_CULL_FACE); glCullFace(GL_FRONT);
-        Renderer::renderEntities(shadowShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, 0,0,0,0,0,0, whiteTex, useNormalMap, glm::vec3(0));
+        Renderer::renderEntities(shadowShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, 0,0,0,0,0,0, whiteTex, flatNormalTex, useNormalMap, glm::vec3(0));
         glCullFace(GL_BACK); glDisable(GL_CULL_FACE); glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         // 2. Point Light Shadow Pass
@@ -243,7 +243,7 @@ int main() {
 
         pointShadowShader.use(); for(int i=0;i<6;i++) pointShadowShader.setMat4("shadowMatrices["+std::to_string(i)+"]", pMats[i]);
         pointShadowShader.setFloat("far_plane", far_p); pointShadowShader.setVec3("lightPos", pP);
-        Renderer::renderEntities(pointShadowShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, 0,0,0,0,0,0, whiteTex, useNormalMap, glm::vec3(0));
+        Renderer::renderEntities(pointShadowShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, 0,0,0,0,0,0, whiteTex, flatNormalTex, useNormalMap, glm::vec3(0));
         glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
         // 3. Main Pass
@@ -257,7 +257,7 @@ int main() {
         glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_CUBE_MAP, prefilterMap);
         glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, brdfLUT);
         glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_CUBE_MAP, depthCubemap);
-        Renderer::renderEntities(ourShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, texDiff, texSpec, texNorm, floorDiff, floorNorm, waterNorm, whiteTex, useNormalMap, camera.Position);
+        Renderer::renderEntities(ourShader, sceneEntities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, texDiff, texSpec, texNorm, floorDiff, floorNorm, waterNorm, whiteTex, flatNormalTex, useNormalMap, camera.Position);
 
         particleShader.use();
         particleShader.setMat4("projection", glm::perspective(glm::radians(camera.Zoom), (float)SCR_WIDTH / SCR_HEIGHT, 0.1f, 100.0f));
