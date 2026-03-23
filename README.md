@@ -1,7 +1,6 @@
 # Mitai Game Engine (OpenGL 4.5)
 
-![](images/demo.png)
-
+![](images/demo1.png)
 
 這是一個基於物理性渲染 (PBR) 架構的 3D 渲染引擎，整合了基於影像的照明 (IBL) 與動態水體模擬技術。
 This is a 3D rendering engine built on a Physically Based Rendering (PBR) architecture, integrating Image-Based Lighting (IBL) and dynamic water surface simulation.
@@ -40,38 +39,37 @@ vec3 finalColor = directLo + (kD_ibl * diffuseIBL + specularIBL);
 
 ### 4. 線性工作流與後製 | Linear Workflow & Post-Processing
 *   **sRGB Linearization**: 所有輸入貼圖均經過 Gamma 補償轉為線性空間計算。
-    All input textures are linearized for calculation.
 *   **Tone Mapping**: 使用 Reinhard 算法壓縮高動態範圍，防止過曝。
-    Utilizes Reinhard algorithm to compress high dynamic range and prevent overexposure.
 *   **Gamma Correction**: 最終輸出進行 2.2 Gamma 校正以符合螢幕顯示標準。
-    Applies 2.2 Gamma correction for standard display output.
 
 ---
 
 ## 技術功能亮點 | Key Technical Features
+
+### 進階幾何與同步陰影 | Advanced Geometry & Synchronized Shadowing (New)
+*   **Tessellation球面化**: 實作動態細分，將正二十面體轉化為精確球面。
+    Dynamic tessellation converting icosahedrons into accurate spheres.
+*   **同步位移陰影**: 太陽陰影與點光源陰影均支援 Tessellation 位移同步，確保影子表現與模型一致。
+    Both sun and point light shadows support tessellation-synchronized displacement.
+*   **絕對外擴爆炸**: 修復法線順序問題，實作物理正確的幾何爆炸效果。
+    Fixed normal orientation for physically accurate geometric explosion.
+
+### 工業級 PBR 標準 | Industrial PBR Standards
 *   **UE4-style IBL**: 符合工業標準的 Split Sum Approximation 實作。
-    Industry-standard Split Sum Approximation implementation.
 *   **Dynamic Water**: 雙層法線捲動與基於反射率的透明度控制。
-    Dual-scrolling normal maps with reflectivity-based transparency.
 *   **Point Light Shadows**: 實作點光源全向深度 Cubemap 陰影。
-    Omnidirectional point light shadows using depth Cubemaps.
-*   **Advanced Geometry**: 整合 Tessellation 與 Geometry Shader 粒子系統。
-    Integrated particle systems using Tessellation and Geometry shaders.
 
 ---
 
 ## 操作指南 | User Manual
 *   **Roughness (粗糙度)**: 0.05 為鏡面，1.0 為完全消光。
-    0.05 for specular, 1.0 for full matte.
 *   **Metallic (金屬度)**: 控制反射染色與漫反射吸收。
-    Controls specular tinting and diffuse absorption.
 *   **Reflectivity (反射率)**: 獨立調製環境倒影強度。
-    Independently modulates environment reflection intensity.
+*   **Advanced Global**: 在引擎面板中使用 `Tess Level` 與 `Explosion` 控制進階效果。
 *   **Tab**: 切換滑鼠捕獲模式。
-    Toggle mouse capture mode.
 
 ---
 
 ## 編譯與執行 | Build & Run
 1. 執行 `build.ps1` 進行編譯。 / Execute `build.ps1` to compile.
-2. 執行 `GameEngine.exe`。 / Run the generated `GameEngine.exe`.
+2. 執行 `bin/GameEngine.exe`。 / Run the generated binary.
