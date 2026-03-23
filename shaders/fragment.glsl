@@ -169,9 +169,11 @@ void main() {
 
     // 3. 直接光照
     vec3 directLo = vec3(0.0);
-    // Light 1 (Sun)
+    // Light 1 (Sun) - 完全同步點光源物理邏輯以獲得一致的高光光澤感
     if(length(light1.color) > 0.01) {
-        vec3 L = normalize(light1.position); vec3 H = normalize(V + L);
+        vec3 L = normalize(light1.position - fs_in.FragPos); vec3 H = normalize(V + L);
+        float dist = length(light1.position - fs_in.FragPos);
+        float atten = 1.0 / (dist * dist + 0.001); // 恢復衰減以獲得明暗梯度與高光感
         float shadow = ShadowCalculation(fs_in.FragPosLightSpace, N, L);
         float NdotL = max(dot(N, L), 0.0);
         float NDF = DistributionGGX(N, H, roughness); 
@@ -179,7 +181,8 @@ void main() {
         vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
         vec3 spec = (NDF * G * F) / (4.0 * NoV * NdotL + 0.001);
         vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
-        directLo += (kD * albedo / PI + spec * specIntensity) * light1.color * NdotL * (1.0 - shadow) * 4.0;
+        // 統一採用 100.0 係數，確保高光具備穿透力度
+        directLo += (kD * albedo / PI + spec * specIntensity) * light1.color * atten * NdotL * (1.0 - shadow) * 100.0;
     }
     // Light 2 (Point)
     if(length(light2.color) > 0.01) {
@@ -193,7 +196,7 @@ void main() {
         vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
         vec3 spec = (NDF * G * F) / (4.0 * NoV * NdotL + 0.001);
         vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
-        directLo += (kD * albedo / PI + spec * specIntensity) * light2.color * atten * NdotL * (1.0 - shadow) * 50.0;
+        directLo += (kD * albedo / PI + spec * specIntensity) * light2.color * atten * NdotL * (1.0 - shadow) * 100.0;
     }
 
     // 4. 間接光照 (IBL)
