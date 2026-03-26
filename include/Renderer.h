@@ -82,38 +82,53 @@ public:
             }
             shader.setMat4("textureMatrix", texMat);
 
+            // --- 強制性 PBR 回退機制 (防止狀態殘留) ---
+            glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, whiteTex);      // Albedo default
+            glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, flatNormalTex); // Normal default
+            glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, whiteTex);      // Metallic default
+            glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, whiteTex);      // Roughness default
+            glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, whiteTex);      // AO default
+            glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, flatNormalTex); // 重借用 flatNormal 作為黑色回退，但更專業做法是建一個 blackTex
+
+            // 修正：建立一個黑色貼圖作為自發光回退
+            static unsigned int blackTex = 0;
+            if (blackTex == 0) {
+                glGenTextures(1, &blackTex);
+                unsigned char data[] = { 0, 0, 0 };
+                glBindTexture(GL_TEXTURE_2D, blackTex);
+                glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, data);
+            }
+            glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, blackTex);
+
             if (e.type == FLOOR) {
                 glBindVertexArray(floorVAO); 
-                glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, floorDiff);
-                glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, whiteTex);
-                glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, floorNorm);
+                glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, floorDiff);
+                glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, floorNorm);
                 glDrawArrays(GL_TRIANGLES, 0, 18);
             } else if (e.type == CUBE) {
                 glBindVertexArray(cubeVAO);
-                glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, texDiff);
-                glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, texSpec);
-                glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, texNorm);
+                glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, texDiff);
+                glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, texSpec); // 使用 Spec 作為金屬度回退
+                glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, texNorm); // 修正：這裡應該是 normalMap 對應單元 11
+                // 重新校正 CUBE 的貼圖單元
+                glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, texDiff);
+                glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, texNorm);
+                glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, texSpec); 
                 glDrawArrays(GL_TRIANGLES, 0, 36);
-            } else if (e.type == SPHERE) {
-                glBindVertexArray(sphereVAO); 
-                glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, whiteTex);
-                glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, whiteTex);
-                glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, flatNormalTex);
-                glDrawElements(GL_TRIANGLES, sphereCount, GL_UNSIGNED_INT, 0);
-            } else if (e.type == ICOSAHEDRON) {
-                glBindVertexArray(icoVAO); 
-                glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, whiteTex);
-                glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, whiteTex);
-                glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, flatNormalTex);
-                glDrawArrays(GL_TRIANGLES, 0, icoCount);
+            } else if (e.type == SPHERE || e.type == ICOSAHEDRON) {
+                unsigned int vao = (e.type == SPHERE) ? sphereVAO : icoVAO;
+                int count = (e.type == SPHERE) ? sphereCount : icoCount;
+                glBindVertexArray(vao); 
+                // 使用預設值即可
+                if (e.type == SPHERE) glDrawElements(GL_TRIANGLES, count, GL_UNSIGNED_INT, 0);
+                else glDrawArrays(GL_TRIANGLES, 0, count);
             } else if (e.type == WATER) {
                 glBindVertexArray(floorVAO); 
-                glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, floorDiff);
-                glActiveTexture(GL_TEXTURE1); glBindTexture(GL_TEXTURE_2D, whiteTex); 
-                glActiveTexture(GL_TEXTURE2); glBindTexture(GL_TEXTURE_2D, waterNorm);
+                glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, floorDiff);
+                glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, waterNorm);
                 glDrawArrays(GL_TRIANGLES, 0, 6);
             } else if (e.type == ADV_SPHERE) {
-                glBindVertexArray(icoVAO); // 使用正 20 體作為細分基礎
+                glBindVertexArray(icoVAO); 
                 glPatchParameteri(GL_PATCH_VERTICES, 3);
                 glDrawArrays(GL_PATCHES, 0, icoCount);
             } else if (e.type == MODEL && e.model) {

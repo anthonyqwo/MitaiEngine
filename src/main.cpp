@@ -192,23 +192,25 @@ int main() {
     Entity helmetEnt("Damaged Helmet", MODEL, glm::vec3(0, 1.0f, 0), glm::vec3(1));
     helmetEnt.model = &helmetModel;
     helmetEnt.scale = glm::vec3(1.0f);
+    helmetEnt.metallic = 1.0f; helmetEnt.roughness = 1.0f; helmetEnt.ambient = 1.0f; helmetEnt.reflectivity = 1.0f;
     sceneEntities.push_back(helmetEnt);
 
     Entity floorEnt("Floor", FLOOR, glm::vec3(0, -0.5f, 0), glm::vec3(0.6f));
     floorEnt.roughness=0.05f; floorEnt.metallic=0.0f; floorEnt.ambient=1.0f; floorEnt.reflectivity=0.05f;
     sceneEntities.push_back(floorEnt);
     Entity cubeEnt("Dynamic Cube", CUBE, glm::vec3(0, 0.5f, 0), glm::vec3(1));
-    cubeEnt.roughness=1.0f; cubeEnt.metallic=0.2f; cubeEnt.ambient=1.0f; cubeEnt.reflectivity=0.15f;
+    cubeEnt.roughness=1.0f; cubeEnt.metallic=1.0f; cubeEnt.ambient=1.0f; cubeEnt.reflectivity=0.15f;
     sceneEntities.push_back(cubeEnt);
     Entity sphereEnt("Standard Sphere", SPHERE, glm::vec3(2, 1, -2), glm::vec3(1, 0.5f, 0));
-    sphereEnt.roughness=0.05f; sphereEnt.metallic=1.0f; sphereEnt.ambient=0.3f; sphereEnt.reflectivity=0.45f;
+    sphereEnt.roughness=0.1f; sphereEnt.metallic=1.0f; sphereEnt.ambient=1.0f; sphereEnt.reflectivity=0.45f;
     sceneEntities.push_back(sphereEnt);
     Entity icoEnt("Advanced Sphere", ADV_SPHERE, glm::vec3(-2, 0.5f, 2), glm::vec3(1, 0.2f, 0.5f));
-    icoEnt.roughness=0.15f; icoEnt.metallic=1.0f; icoEnt.ambient=0.4f; icoEnt.reflectivity=0.3f;
+    icoEnt.roughness=0.2f; icoEnt.metallic=1.0f; icoEnt.ambient=1.0f; icoEnt.reflectivity=0.3f;
     sceneEntities.push_back(icoEnt);
     Entity waterEntity("Water Surface", WATER, glm::vec3(0, -0.49f, 0), glm::vec3(0.1f, 0.3f, 0.6f));
-    waterEntity.roughness=0.05f; waterEntity.reflectivity=0.4f; waterEntity.metallic=0.0f;
+    waterEntity.roughness=0.1f; waterEntity.reflectivity=0.4f; waterEntity.metallic=0.0f;
     sceneEntities.push_back(waterEntity);
+
     Entity sunEnt("Main Sun", CUBE, glm::vec3(5.0f, 10.0f, 5.0f), glm::vec3(1.0f, 0.95f, 0.8f));
     sunEnt.isLight=true; sunEnt.lightColor=glm::vec3(1.0f, 0.95f, 0.8f); sunEnt.lightIntensity=2.0f; sunEnt.scale=glm::vec3(0.2f);
     sceneEntities.push_back(sunEnt);
@@ -217,9 +219,7 @@ int main() {
     sceneEntities.push_back(lampEnt);
     sceneEntities.push_back(Entity("Particle Source", PARTICLE, glm::vec3(0, 1.0f, 0), glm::vec3(124.0f/255.0f, 117.0f/255.0f, 112.0f/255.0f)));
 
-    ourShader.use(); ourShader.setInt("texture_diffuse", 0); ourShader.setInt("texture_specular", 1); ourShader.setInt("texture_normal", 2); 
-    ourShader.setInt("shadowMap", 3); ourShader.setInt("skybox", 4); ourShader.setInt("irradianceMap", 5); 
-    ourShader.setInt("prefilterMap", 6); ourShader.setInt("brdfLUT", 7); ourShader.setInt("pointShadowMap", 8);
+    // --- 移除已在 Shader 中綁定的重複 setInt ---
     skyboxShader.use(); skyboxShader.setInt("skybox", 0);
 
     glEnable(GL_DEPTH_TEST); 

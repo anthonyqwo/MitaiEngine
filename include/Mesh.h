@@ -38,10 +38,19 @@ public:
 
     void Draw(const Shader &shader) {
         for(unsigned int i = 0; i < textures.size(); i++) {
-            glActiveTexture(GL_TEXTURE0 + i);
             std::string name = textures[i].type;
-            shader.setInt(name.c_str(), i);
-            glBindTexture(GL_TEXTURE_2D, textures[i].id);
+            int slot = -1;
+            if (name == "albedoMap") slot = 10;
+            else if (name == "normalMap") slot = 11;
+            else if (name == "metallicMap") slot = 12;
+            else if (name == "roughnessMap") slot = 13;
+            else if (name == "aoMap") slot = 14;
+            else if (name == "emissiveMap") slot = 15;
+
+            if (slot != -1) {
+                glActiveTexture(GL_TEXTURE0 + slot);
+                glBindTexture(GL_TEXTURE_2D, textures[i].id);
+            }
         }
         
         glBindVertexArray(VAO);

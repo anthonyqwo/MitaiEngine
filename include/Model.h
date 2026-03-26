@@ -102,18 +102,33 @@ private:
         }
         aiMaterial* material = scene->mMaterials[mesh->mMaterialIndex];    
 
-        // 1. diffuse: texture_diffuse
-        std::vector<Texture> diffuseMaps = loadMaterialTextures(material, aiTextureType_DIFFUSE, "texture_diffuse", scene);
-        textures.insert(textures.end(), diffuseMaps.begin(), diffuseMaps.end());
-        // 2. specular: texture_specular
-        std::vector<Texture> specularMaps = loadMaterialTextures(material, aiTextureType_SPECULAR, "texture_specular", scene);
-        textures.insert(textures.end(), specularMaps.begin(), specularMaps.end());
-        // 3. normal: texture_normal
-        std::vector<Texture> normalMaps = loadMaterialTextures(material, aiTextureType_HEIGHT, "texture_normal", scene);
+        // 1. Albedo: albedoMap
+        std::vector<Texture> albedoMaps = loadMaterialTextures(material, aiTextureType_DIFFUSE, "albedoMap", scene);
+        textures.insert(textures.end(), albedoMaps.begin(), albedoMaps.end());
+        
+        // 2. Normal: normalMap
+        // Assimp 處理 GLTF/OBJ 時法線可能在 HEIGHT 或 NORMALS 槽位
+        std::vector<Texture> normalMaps = loadMaterialTextures(material, aiTextureType_HEIGHT, "normalMap", scene);
+        if(normalMaps.empty()) normalMaps = loadMaterialTextures(material, aiTextureType_NORMALS, "normalMap", scene);
         textures.insert(textures.end(), normalMaps.begin(), normalMaps.end());
-        // 4. height: texture_height
-        std::vector<Texture> heightMaps = loadMaterialTextures(material, aiTextureType_AMBIENT, "texture_height", scene);
-        textures.insert(textures.end(), heightMaps.begin(), heightMaps.end());
+        
+        // 3. Metallic: metallicMap
+        std::vector<Texture> metallicMaps = loadMaterialTextures(material, aiTextureType_METALNESS, "metallicMap", scene);
+        textures.insert(textures.end(), metallicMaps.begin(), metallicMaps.end());
+        
+        // 4. Roughness: roughnessMap
+        std::vector<Texture> roughnessMaps = loadMaterialTextures(material, aiTextureType_DIFFUSE_ROUGHNESS, "roughnessMap", scene);
+        if(roughnessMaps.empty()) roughnessMaps = loadMaterialTextures(material, aiTextureType_SHININESS, "roughnessMap", scene);
+        textures.insert(textures.end(), roughnessMaps.begin(), roughnessMaps.end());
+        
+        // 5. Ambient Occlusion: aoMap
+        std::vector<Texture> aoMaps = loadMaterialTextures(material, aiTextureType_AMBIENT_OCCLUSION, "aoMap", scene);
+        if(aoMaps.empty()) aoMaps = loadMaterialTextures(material, aiTextureType_AMBIENT, "aoMap", scene);
+        textures.insert(textures.end(), aoMaps.begin(), aoMaps.end());
+
+        // 6. Emissive: emissiveMap
+        std::vector<Texture> emissiveMaps = loadMaterialTextures(material, aiTextureType_EMISSIVE, "emissiveMap", scene);
+        textures.insert(textures.end(), emissiveMaps.begin(), emissiveMaps.end());
         
         return Mesh(vertices, indices, textures);
     }

@@ -10,14 +10,19 @@ in VS_OUT {
     vec4 FragPosLightSpace;
 } fs_in;
 
-uniform sampler2D texture_diffuse;
-uniform sampler2D texture_specular;
-uniform sampler2D texture_normal;
-uniform sampler2D shadowMap;
-uniform samplerCube irradianceMap;
-uniform samplerCube prefilterMap;
-uniform sampler2D   brdfLUT;
-uniform samplerCube pointShadowMap;
+// --- 固定貼圖單元綁定 ---
+layout(binding = 10) uniform sampler2D albedoMap;
+layout(binding = 11) uniform sampler2D normalMap;
+layout(binding = 12) uniform sampler2D metallicMap;
+layout(binding = 13) uniform sampler2D roughnessMap;
+layout(binding = 14) uniform sampler2D aoMap;
+layout(binding = 15) uniform sampler2D emissiveMap;
+
+layout(binding = 3)  uniform sampler2D shadowMap;
+layout(binding = 5)  uniform samplerCube irradianceMap;
+layout(binding = 6)  uniform samplerCube prefilterMap;
+layout(binding = 7)  uniform sampler2D   brdfLUT;
+layout(binding = 8)  uniform samplerCube pointShadowMap;
 
 struct Material { float ambientStrength; };
 uniform Material material;
@@ -31,15 +36,15 @@ uniform bool useNormalMap;
 uniform bool isLightSource;
 uniform bool isWater;
 uniform vec3 viewPos;
-uniform float roughness;
-uniform float metallic;
+uniform float roughness; 
+uniform float metallic;  
 uniform float reflectivity;
 uniform float time;
 uniform float far_plane;
 
 const float PI = 3.14159265359;
 
-// --- 輔助函數 ---
+// --- 輔助函數 (保持不變) ---
 float ShadowCalculation(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir) {
     if(length(light1.color) < 0.01) return 0.0;
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
@@ -79,7 +84,6 @@ float PointShadowCalculation(vec3 fragPos, vec3 normal) {
     return shadow / float(samples);
 }
 
-// 核心 PBR 函數：極致性能與高光釋放
 float DistributionGGX(vec3 N, vec3 H, float roughness) {
     float a = roughness*roughness;
     float a2 = a*a;
@@ -88,7 +92,7 @@ float DistributionGGX(vec3 N, vec3 H, float roughness) {
     float nom   = a2;
     float denom = (NdotH2 * (a2 - 1.0) + 1.0);
     denom = PI * denom * denom;
-    return nom / max(denom, 1e-7); // 釋放極低粗糙度的高光波峰
+    return nom / max(denom, 1e-7);
 }
 
 float GeometrySchlickGGX(float NdotV, float roughness) {
@@ -120,7 +124,26 @@ void main() {
         FragColor = vec4(objectColor, 1.0); return;
     }
 
-    // 1. 法線處理
+    // 1. 採樣與 PBR 頻道解析
+    vec3 texAlbedo = texture(albedoMap, fs_in.TexCoords).rgb;
+    vec3 baseColor = pow(texAlbedo, vec3(2.2)) * objectColor;
+    
+    // GLTF Packing: R=Occlusion, G=Roughness, B=Metallic
+    float m = texture(metallicMap, fs_in.TexCoords).b * metallic;
+    float r = texture(roughnessMap, fs_in.TexCoords).g * roughness;
+    
+    // 向下相容
+    vec3 mSample = texture(metallicMap, fs_in.TexCoords).rgb;
+    if (mSample.b < 0.001 && mSample.r > 0.001) m = mSample.r * metallic;
+    vec3 rSample = texture(roughnessMap, fs_in.TexCoords).rgb;
+    if (rSample.g < 0.001 && rSample.r > 0.001) r = rSample.r * roughness;
+
+    float aoSample = texture(aoMap, fs_in.TexCoords).r * material.ambientStrength;
+    vec3 emissive = pow(texture(emissiveMap, fs_in.TexCoords).rgb, vec3(2.2)) * 2.0; // 自發光增益
+    
+    r = clamp(r, 0.04, 1.0);
+
+    // 2. 法線處理
     vec3 N_geom = normalize(fs_in.Normal);
     vec3 T = normalize(fs_in.Tangent);
     T = normalize(T - dot(T, N_geom) * N_geom);
@@ -132,16 +155,14 @@ void main() {
         vec2 uv1 = fs_in.TexCoords * 0.8 + vec2(time * 0.01, time * 0.005);
         vec2 uv2 = fs_in.TexCoords * 2.2 + vec2(time * -0.015, time * 0.012);
         vec2 uv3 = fs_in.TexCoords * 5.0 + vec2(time * 0.02, time * -0.02);
-        vec3 n1 = texture(texture_normal, uv1).rgb * 2.0 - 1.0;
-        vec3 n2 = texture(texture_normal, uv2).rgb * 2.0 - 1.0;
-        vec3 n3 = texture(texture_normal, uv3).rgb * 2.0 - 1.0;
+        vec3 n1 = texture(normalMap, uv1).rgb * 2.0 - 1.0;
+        vec3 n2 = texture(normalMap, uv2).rgb * 2.0 - 1.0;
+        vec3 n3 = texture(normalMap, uv3).rgb * 2.0 - 1.0;
         vec3 mixedNormal = normalize(n1 + n2 * 0.6 + n3 * 0.3);
-        // 水體擾動保持強烈
         mixedNormal.xy *= 2.5; 
         N = normalize(TBN * normalize(mixedNormal));
     } else if(useNormalMap) {
-        vec3 tangentNormal = texture(texture_normal, fs_in.TexCoords).rgb * 2.0 - 1.0;
-        // 如果是平坦法線 (0,0,1)，xy 為 0，乘以 1.5 仍為 0，確保一致性
+        vec3 tangentNormal = texture(normalMap, fs_in.TexCoords).rgb * 2.0 - 1.0;
         tangentNormal.xy *= 1.5;
         N = normalize(TBN * normalize(tangentNormal));
     } else {
@@ -153,35 +174,32 @@ void main() {
     vec3 R = reflect(-V, reflectN);
     float NoV = max(dot(N, V), 0.0);
 
-    // 2. 材質與 F0
-    vec3 albedo = pow(texture(texture_diffuse, fs_in.TexCoords).rgb, vec3(2.2)) * objectColor;
+    // 3. 材質與 F0
+    vec3 albedo = baseColor;
     if(isWater) {
         float fresnelWater = pow(1.0 - NoV, 5.0);
         vec3 deepColor = vec3(0.0, 0.02, 0.05); 
         albedo = mix(deepColor, albedo * 0.6, fresnelWater);
     }
     
-    float rawSpecMask = texture(texture_specular, fs_in.TexCoords).r;
-    // Reflectivity 作為高光主增益 (Boost to 8.0) 以獲得強烈的光澤感
-    float specIntensity = reflectivity * rawSpecMask * 8.0; 
+    float specIntensity = reflectivity * 8.0; 
     if(isWater) specIntensity *= 1.5;
-    vec3 F0 = mix(vec3(0.04), albedo, metallic);
+    vec3 F0 = mix(vec3(0.04), albedo, m);
 
-    // 3. 直接光照
+    // 4. 直接光照
     vec3 directLo = vec3(0.0);
-    // Light 1 (Sun) - 完全同步點光源物理邏輯以獲得一致的高光光澤感
+    // Light 1 (Sun)
     if(length(light1.color) > 0.01) {
         vec3 L = normalize(light1.position - fs_in.FragPos); vec3 H = normalize(V + L);
         float dist = length(light1.position - fs_in.FragPos);
-        float atten = 1.0 / (dist * dist + 0.001); // 恢復衰減以獲得明暗梯度與高光感
+        float atten = 1.0 / (dist * dist + 0.001); 
         float shadow = ShadowCalculation(fs_in.FragPosLightSpace, N, L);
         float NdotL = max(dot(N, L), 0.0);
-        float NDF = DistributionGGX(N, H, roughness); 
-        float G = GeometrySmith(N, V, L, roughness); 
+        float NDF = DistributionGGX(N, H, r); 
+        float G = GeometrySmith(N, V, L, r); 
         vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
         vec3 spec = (NDF * G * F) / (4.0 * NoV * NdotL + 0.001);
-        vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
-        // 統一採用 100.0 係數，確保高光具備穿透力度
+        vec3 kD = (vec3(1.0) - F) * (1.0 - m);
         directLo += (kD * albedo / PI + spec * specIntensity) * light1.color * atten * NdotL * (1.0 - shadow) * 100.0;
     }
     // Light 2 (Point)
@@ -191,44 +209,32 @@ void main() {
         float atten = 1.0 / (dist * dist + 0.001);
         float shadow = PointShadowCalculation(fs_in.FragPos, N);
         float NdotL = max(dot(N, L), 0.0);
-        float NDF = DistributionGGX(N, H, roughness); 
-        float G = GeometrySmith(N, V, L, roughness); 
+        float NDF = DistributionGGX(N, H, r); 
+        float G = GeometrySmith(N, V, L, r); 
         vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
         vec3 spec = (NDF * G * F) / (4.0 * NoV * NdotL + 0.001);
-        vec3 kD = (vec3(1.0) - F) * (1.0 - metallic);
+        vec3 kD = (vec3(1.0) - F) * (1.0 - m);
         directLo += (kD * albedo / PI + spec * specIntensity) * light2.color * atten * NdotL * (1.0 - shadow) * 100.0;
     }
 
-    // 4. 間接光照 (IBL)
-    vec3 F_ibl = fresnelSchlickRoughness(NoV, F0, roughness);
-    vec3 kD_ibl = (vec3(1.0) - F_ibl) * (1.0 - metallic);
-    
+    // 5. 間接光照 (IBL)
+    vec3 F_ibl = fresnelSchlickRoughness(NoV, F0, r);
+    vec3 kD_ibl = (vec3(1.0) - F_ibl) * (1.0 - m);
     vec3 irradiance = texture(irradianceMap, N).rgb;
     vec3 diffuseIBL = irradiance * albedo;
-    
     const float MAX_LOD = 4.0;
-    // 恢復線性映射以獲得最精確的低粗糙度採樣
-    float lod = roughness * MAX_LOD; 
+    float lod = r * MAX_LOD; 
     vec3 pref = textureLod(prefilterMap, R, lod).rgb;    
-    vec2 brdf = texture(brdfLUT, vec2(NoV, roughness)).rg;
+    vec2 brdf = texture(brdfLUT, vec2(NoV, r)).rg;
     vec3 specularIBL = pref * (F_ibl * brdf.x + brdf.y);
     
-    float ao = material.ambientStrength;
-    // IBL Specular 也受益於 specIntensity 的增強
-    vec3 ambient = (kD_ibl * diffuseIBL + specularIBL * specIntensity) * ao;
+    vec3 ambient = (kD_ibl * diffuseIBL + specularIBL * specIntensity) * aoSample;
     if(isWater) ambient *= 0.5;
     
-    vec3 color = directLo + ambient;
+    // --- 疊加自發光 ---
+    vec3 color = directLo + ambient + emissive;
+    
     color = color / (color + vec3(1.0)); 
     color = pow(color, vec3(1.0/2.2));   
-    
-    // 5. 透明度處理 (基於菲涅耳)
-    float alpha = 1.0;
-    if(isWater) {
-        // 菲涅耳透明度：垂直觀察(NoV=1)時透明度最低，掠射角(NoV=0)時不透明
-        float fresnelAlpha = pow(1.0 - NoV, 4.0); 
-        alpha = clamp(0.3 + fresnelAlpha * 0.6, 0.0, 1.0); // 基礎透明度 0.3
-    }
-    
-    FragColor = vec4(color, alpha);
+    FragColor = vec4(color, 1.0);
 }
