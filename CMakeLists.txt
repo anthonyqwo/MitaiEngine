@@ -25,16 +25,36 @@ set(IMGUI_SOURCES
     ${IMGUI_DIR}/backends/imgui_impl_glfw.cpp ${IMGUI_DIR}/backends/imgui_impl_opengl3.cpp
 )
 
+# --- Assimp ---
+set(ASSIMP_BUILD_ASSIMP_TOOLS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_INSTALL OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
+# 強制關閉所有匯出功能與 3DS 相關組件
+set(ASSIMP_BUILD_EXPORTERS OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_3DS_IMPORTER OFF CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_3DS_EXPORTER OFF CACHE BOOL "" FORCE)
+# 禁用所有預設 Importers 以節省空間並修復 MinGW 編譯錯誤
+set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
+# 僅啟用需要的格式
+set(ASSIMP_BUILD_GLTF_IMPORTER ON CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_OBJ_IMPORTER ON CACHE BOOL "" FORCE)
+
+FetchContent_Declare(assimp GIT_REPOSITORY https://github.com/assimp/assimp.git GIT_TAG v5.2.5)
+FetchContent_MakeAvailable(assimp)
+
 # --- Project ---
 file(GLOB_RECURSE SOURCES "src/*.cpp" "src/*.c")
 add_executable(${PROJECT_NAME} ${SOURCES} ${IMGUI_SOURCES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE 
     include ${IMGUI_DIR} ${IMGUI_DIR}/backends
+    ${assimp_SOURCE_DIR}/include
+    ${assimp_BINARY_DIR}/include
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
-    glfw glm::glm opengl32
+    glfw glm::glm assimp::assimp opengl32
 )
 
 if(WIN32)

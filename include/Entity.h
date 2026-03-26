@@ -5,7 +5,9 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <string>
 
-enum EntityType { CUBE, SPHERE, ICOSAHEDRON, ADV_SPHERE, FLOOR, PARTICLE, WATER };
+enum EntityType { CUBE, SPHERE, ICOSAHEDRON, ADV_SPHERE, FLOOR, PARTICLE, WATER, MODEL };
+
+class Model; // 前向宣告
 
 struct Entity {
     std::string name;
@@ -15,6 +17,9 @@ struct Entity {
     glm::vec3 scale;
     glm::vec3 color;
     bool visible = true;
+    
+    // 模型資源
+    Model* model = nullptr;
     
     // PBR 材質屬性
     float roughness = 0.5f;

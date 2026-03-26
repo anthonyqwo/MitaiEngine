@@ -5,6 +5,7 @@
 #include <vector>
 #include "Shader.h"
 #include "Entity.h"
+#include "Model.h"
 
 class Renderer {
 public:
@@ -115,6 +116,8 @@ public:
                 glBindVertexArray(icoVAO); // 使用正 20 體作為細分基礎
                 glPatchParameteri(GL_PATCH_VERTICES, 3);
                 glDrawArrays(GL_PATCHES, 0, icoCount);
+            } else if (e.type == MODEL && e.model) {
+                e.model->Draw(shader);
             }
         }
     }

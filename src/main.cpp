@@ -13,6 +13,7 @@
 #include "Geometry.h"
 #include "Renderer.h"
 #include "IBLBaker.h"
+#include "Model.h"
 #include <iostream>
 #include <vector>
 
@@ -186,6 +187,12 @@ int main() {
     unsigned int irradianceMap, prefilterMap, brdfLUT;
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
     IBLBaker::bake(skybox, cubeVAO, irradianceMap, prefilterMap, brdfLUT);
+
+    Model helmetModel("assets/models/DamagedHelmet.glb");
+    Entity helmetEnt("Damaged Helmet", MODEL, glm::vec3(0, 1.0f, 0), glm::vec3(1));
+    helmetEnt.model = &helmetModel;
+    helmetEnt.scale = glm::vec3(1.0f);
+    sceneEntities.push_back(helmetEnt);
 
     Entity floorEnt("Floor", FLOOR, glm::vec3(0, -0.5f, 0), glm::vec3(0.6f));
     floorEnt.roughness=0.05f; floorEnt.metallic=0.0f; floorEnt.ambient=1.0f; floorEnt.reflectivity=0.05f;
