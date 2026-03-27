@@ -7,8 +7,8 @@
 #include <string>
 
 #include "Scene.h"
-#include "Shader.h"
 #include "Model.h"
+#include "Renderer.h"
 
 class Application {
 public:
@@ -21,17 +21,15 @@ public:
 
 private:
     void processInput();
-    void render(glm::mat4 lSpace, float far_p, std::vector<glm::mat4> pMats);
     void renderImGui();
     void setupResources();
 
     GLFWwindow* window;
     Scene* scene;
+    Renderer* renderer;
     
     unsigned int SCR_WIDTH = 1920;
     unsigned int SCR_HEIGHT = 1080;
-    unsigned int SHADOW_WIDTH = 2048;
-    unsigned int SHADOW_HEIGHT = 2048;
 
     float deltaTime;
     float lastFrame;
@@ -46,37 +44,14 @@ private:
     float pSpread, pSize, pCount;
     int selectedEntityIndex;
     
-    Shader* ourShader;
-    Shader* skyboxShader;
-    Shader* shadowShader;
-    Shader* pointShadowShader;
-    Shader* advShader;
-    Shader* particleShader;
-    Shader* advShadowShader;
-    Shader* advPointShadowShader;
-    
     Model* helmetModel;
-
-    unsigned int cubeVAO, cubeVBO;
-    unsigned int floorVAO, floorVBO;
-    unsigned int sphereVAO, sphereVBO;
-    int sphereCount;
-    unsigned int icoVAO, icoVBO;
-    int icoCount;
-    unsigned int skVAO, skVBO;
-    
-    unsigned int depthFBO, depthMap;
-    unsigned int pointShadowFBO, depthCubemap;
-    
-    unsigned int texDiff, texSpec, texNorm, waterNorm, floorDiff, floorNorm, whiteTex, flatNormalTex;
 
     static Application* s_instance;
     static void framebuffer_size_callback(GLFWwindow* window, int width, int height);
     static void mouse_callback(GLFWwindow* window, double xposIn, double yposIn);
     
-    unsigned int loadTexture(const char *path);
+    // IBL Helpers
     unsigned int loadCubemap(std::vector<std::string> faces);
-    unsigned int createSolidTexture(unsigned char r, unsigned char g, unsigned char b);
 };
 
 #endif

@@ -1,0 +1,6 @@
+﻿ERROR::PROGRAM_LINKING_ERROR of type: PROGRAM
+Geometry info
+-------------
+0(10) : error C5108: unknown semantics "ATTR0.xyz" specified for "FragPos"
+
+ -- --------------------------------------------------- -- 

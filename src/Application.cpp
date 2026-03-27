@@ -14,8 +14,7 @@
 #include "imgui_impl_glfw.h"
 #include "imgui_impl_opengl3.h"
 
-#include "Renderer.h"
-#include "Geometry.h"
+#include "ResourceManager.h"
 #include "IBLBaker.h"
 
 Application* Application::s_instance = nullptr;
@@ -24,6 +23,7 @@ Application::Application() {
     s_instance = this;
     window = nullptr;
     scene = new Scene();
+    renderer = nullptr;
     
     deltaTime = 0.0f;
     lastFrame = 0.0f;
@@ -44,14 +44,8 @@ Application::Application() {
 
 Application::~Application() {
     delete scene;
-    delete ourShader;
-    delete skyboxShader;
-    delete shadowShader;
-    delete pointShadowShader;
-    delete advShader;
-    delete particleShader;
-    delete advShadowShader;
-    delete advPointShadowShader;
+    delete renderer;
+    ResourceManager::clear();
     delete helmetModel;
 }
 
@@ -59,7 +53,7 @@ bool Application::init() {
     if (!glfwInit()) return false;
     glfwWindowHint(GLFW_CONTEXT_VERSION_MAJOR, 4); glfwWindowHint(GLFW_CONTEXT_VERSION_MINOR, 5);
     glfwWindowHint(GLFW_OPENGL_PROFILE, GLFW_OPENGL_CORE_PROFILE);
-    window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "PBR Engine V4.5 - Refactored", NULL, NULL);
+    window = glfwCreateWindow(SCR_WIDTH, SCR_HEIGHT, "PBR Engine V4.5 - Deferred Rendering", NULL, NULL);
     if (!window) return false;
 
     glfwMakeContextCurrent(window);
@@ -82,112 +76,68 @@ bool Application::init() {
 }
 
 void Application::setupResources() {
-    ourShader = new Shader("shaders/vertex.glsl", "shaders/fragment.glsl");
-    skyboxShader = new Shader("shaders/skybox_v.glsl", "shaders/skybox_f.glsl");
-    shadowShader = new Shader("shaders/shadow_v.glsl", "shaders/shadow_f.glsl");
-    pointShadowShader = new Shader("shaders/point_shadow_v.glsl", "shaders/point_shadow_f.glsl", "shaders/point_shadow_g.glsl");
-    advShader = new Shader("shaders/adv_v.glsl", "shaders/adv_f.glsl", "shaders/adv_g.glsl", "shaders/adv_tc.glsl", "shaders/adv_te.glsl");
-    particleShader = new Shader("shaders/particle_v.glsl", "shaders/particle_f.glsl", "shaders/particle_g.glsl", "shaders/particle_tc.glsl", "shaders/particle_te.glsl");
-    advShadowShader = new Shader("shaders/adv_v.glsl", "shaders/shadow_f.glsl", "shaders/adv_g.glsl", "shaders/adv_tc.glsl", "shaders/adv_te.glsl");
-    advPointShadowShader = new Shader("shaders/adv_v.glsl", "shaders/point_shadow_f.glsl", "shaders/adv_point_shadow_g.glsl", "shaders/adv_tc.glsl", "shaders/adv_te.glsl");
-
-    float cubeVertices[] = {
-        -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f, 0.0f, 0.0f,
-         0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  0.0f,  1.0f, 0.0f, 0.0f,
-         0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,  1.0f, 0.0f, 0.0f,
-         0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  1.0f,  1.0f,  1.0f, 0.0f, 0.0f,
-        -0.5f,  0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  1.0f,  1.0f, 0.0f, 0.0f,
-        -0.5f, -0.5f, -0.5f,  0.0f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f, 0.0f, 0.0f,
-        -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f, 0.0f, 0.0f,
-         0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  0.0f,  1.0f, 0.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,  1.0f, 0.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  1.0f,  1.0f,  1.0f, 0.0f, 0.0f,
-        -0.5f,  0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  1.0f,  1.0f, 0.0f, 0.0f,
-        -0.5f, -0.5f,  0.5f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f, 0.0f, 0.0f,
-        -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f, 1.0f, 0.0f,
-        -0.5f,  0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  1.0f,  0.0f, 1.0f, 0.0f,
-        -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,  0.0f, 1.0f, 0.0f,
-        -0.5f, -0.5f, -0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f,  0.0f, 1.0f, 0.0f,
-        -0.5f, -0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f, 1.0f, 0.0f,
-        -0.5f,  0.5f,  0.5f, -1.0f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f, 1.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,-1.0f, 0.0f,
-         0.5f,  0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  1.0f,  0.0f,-1.0f, 0.0f,
-         0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,  0.0f,-1.0f, 0.0f,
-         0.5f, -0.5f, -0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f,  0.0f,-1.0f, 0.0f,
-         0.5f, -0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  0.0f,  0.0f,  0.0f,-1.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  1.0f,  0.0f,  0.0f,  1.0f,  0.0f,  0.0f,-1.0f, 0.0f,
-        -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,  1.0f, 0.0f, 0.0f,
-         0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  1.0f,  1.0f, 0.0f, 0.0f,
-         0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,  1.0f, 0.0f, 0.0f,
-         0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  1.0f,  0.0f,  1.0f, 0.0f, 0.0f,
-        -0.5f, -0.5f,  0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  0.0f,  1.0f, 0.0f, 0.0f,
-        -0.5f, -0.5f, -0.5f,  0.0f, -1.0f,  0.0f,  0.0f,  1.0f,  1.0f, 0.0f, 0.0f,
-        -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f,  1.0f, 0.0f, 0.0f,
-         0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  1.0f,  1.0f, 0.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,  1.0f, 0.0f, 0.0f,
-         0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  1.0f,  0.0f,  1.0f, 0.0f, 0.0f,
-        -0.5f,  0.5f,  0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  0.0f,  1.0f, 0.0f, 0.0f,
-        -0.5f,  0.5f, -0.5f,  0.0f,  1.0f,  0.0f,  0.0f,  1.0f,  1.0f, 0.0f, 0.0f
-    };
-
-    float floorWallV[] = {
-        -7,0,-7, 0,1,0, 0,5, 1,0,0,  7,0,-7, 0,1,0, 5,5, 1,0,0,  7,0, 7, 0,1,0, 5,0, 1,0,0,
-         7,0, 7, 0,1,0, 5,0, 1,0,0, -7,0, 7, 0,1,0, 0,0, 1,0,0, -7,0,-7, 0,1,0, 0,5, 1,0,0,
-        -7,0,-7, 0,0,1, 0,0, 1,0,0,  7,0,-7, 0,0,1, 5,0, 1,0,0,  7,5,-7, 0,0,1, 5,2, 1,0,0,
-         7,5,-7, 0,0,1, 5,2, 1,0,0, -7,5,-7, 0,0,1, 0,2, 1,0,0, -7,0,-7, 0,0,1, 0,0, 1,0,0,
-        -7,0, 7, 1,0,0, 0,0, 0,0,-1, -7,0,-7, 1,0,0, 5,0, 0,0,-1, -7,5,-7, 1,0,0, 5,2, 0,0,-1,
-        -7,5,-7, 1,0,0, 5,2, 0,0,-1, -7,5, 7, 1,0,0, 0,2, 0,0,-1, -7,0, 7, 1,0,0, 0,0, 0,0,-1
-    };
-
-    glGenVertexArrays(1, &cubeVAO); glGenBuffers(1, &cubeVBO);
-    glBindVertexArray(cubeVAO); glBindBuffer(GL_ARRAY_BUFFER, cubeVBO); glBufferData(GL_ARRAY_BUFFER, sizeof(cubeVertices), cubeVertices, GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(2); glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(6 * sizeof(float)));
-    glEnableVertexAttribArray(3); glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(8 * sizeof(float)));
+    ResourceManager::loadShader("shaders/vertex.glsl", "shaders/gbuffer_f.glsl", nullptr, nullptr, nullptr, "gbuffer");
+    ResourceManager::loadShader("shaders/adv_v.glsl", "shaders/adv_gbuffer_f.glsl", "shaders/adv_g.glsl", "shaders/adv_tc.glsl", "shaders/adv_te.glsl", "advGbuffer");
+    ResourceManager::loadShader("shaders/deferred_lighting_v.glsl", "shaders/deferred_lighting_f.glsl", nullptr, nullptr, nullptr, "deferred_lighting");
     
-    glGenVertexArrays(1, &floorVAO); glGenBuffers(1, &floorVBO);
-    glBindVertexArray(floorVAO); glBindBuffer(GL_ARRAY_BUFFER, floorVBO); glBufferData(GL_ARRAY_BUFFER, sizeof(floorWallV), floorWallV, GL_STATIC_DRAW);
-    glEnableVertexAttribArray(0); glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)0);
-    glEnableVertexAttribArray(1); glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(3 * sizeof(float)));
-    glEnableVertexAttribArray(2); glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(6 * sizeof(float)));
-    glEnableVertexAttribArray(3); glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(8 * sizeof(float)));
+    ResourceManager::loadShader("shaders/vertex.glsl", "shaders/forward_water_f.glsl", nullptr, nullptr, nullptr, "forward_water");
+    ResourceManager::loadShader("shaders/vertex.glsl", "shaders/unlit_f.glsl", nullptr, nullptr, nullptr, "unlit");
+    
+    ResourceManager::loadShader("shaders/skybox_v.glsl", "shaders/skybox_f.glsl", nullptr, nullptr, nullptr, "skybox");
+    ResourceManager::loadShader("shaders/shadow_v.glsl", "shaders/shadow_f.glsl", nullptr, nullptr, nullptr, "shadow");
+    ResourceManager::loadShader("shaders/point_shadow_v.glsl", "shaders/point_shadow_f.glsl", "shaders/point_shadow_g.glsl", nullptr, nullptr, "pointShadow");
+    ResourceManager::loadShader("shaders/particle_v.glsl", "shaders/particle_f.glsl", "shaders/particle_g.glsl", "shaders/particle_tc.glsl", "shaders/particle_te.glsl", "particle");
+    ResourceManager::loadShader("shaders/adv_v.glsl", "shaders/shadow_f.glsl", "shaders/adv_g.glsl", "shaders/adv_tc.glsl", "shaders/adv_te.glsl", "advShadow");
+    ResourceManager::loadShader("shaders/adv_v.glsl", "shaders/point_shadow_f.glsl", "shaders/adv_point_shadow_g.glsl", "shaders/adv_tc.glsl", "shaders/adv_te.glsl", "advPointShadow");
 
-    Geometry::setupSphere(sphereVAO, sphereVBO, sphereCount);
-    Geometry::setupIcosahedron(icoVAO, icoVBO, icoCount);
+    ResourceManager::loadTexture("assets/container.jpg", "texDiff");
+    ResourceManager::loadTexture("assets/container_specular.png", "texSpec");
+    ResourceManager::loadTexture("assets/container_normal.png", "texNorm");
+    ResourceManager::loadTexture("assets/water_normal.jpg", "waterNorm");
+    ResourceManager::loadTexture("assets/wall.jpg", "floorDiff");
+    ResourceManager::loadTexture("assets/wall_normal.jpg", "floorNorm");
+    ResourceManager::createSolidTexture(255, 255, 255, "whiteTex");
+    ResourceManager::createSolidTexture(128, 128, 255, "flatNormalTex");
+    ResourceManager::createSolidTexture(0, 0, 0, "blackTex");
 
-    float skyVertices[] = { -1,1,-1, -1,-1,-1, 1,-1,-1, 1,-1,-1, 1,1,-1, -1,1,-1, -1,-1,1, -1,-1,-1, -1,1,-1, -1,1,-1, -1,1,1, -1,-1,1, 1,-1,-1, 1,-1,1, 1,1,1, 1,1,1, 1,1,-1, 1,-1,-1, -1,-1,1, -1,1,1, 1,1,1, 1,1,1, 1,-1,1, -1,-1,1, -1,1,-1, 1,1,-1, 1,1,1, 1,1,1, -1,1,1, -1,1,-1, -1,-1,-1, -1,-1,1, 1,-1,-1, 1,-1,-1, -1,-1,1, 1,-1,1 };
-    glGenVertexArrays(1, &skVAO); glGenBuffers(1, &skVBO);
-    glBindVertexArray(skVAO); glBindBuffer(GL_ARRAY_BUFFER, skVBO); glBufferData(GL_ARRAY_BUFFER, sizeof(skyVertices), skyVertices, GL_STATIC_DRAW);
-    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0); glEnableVertexAttribArray(0);
-
-    glGenFramebuffers(1, &depthFBO); glGenTextures(1, &depthMap);
-    glBindTexture(GL_TEXTURE_2D, depthMap); glTexImage2D(GL_TEXTURE_2D, 0, GL_DEPTH_COMPONENT, SHADOW_WIDTH, SHADOW_HEIGHT, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_BORDER); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_BORDER);
-    float bCol[] = { 1,1,1,1 }; glTexParameterfv(GL_TEXTURE_2D, GL_TEXTURE_BORDER_COLOR, bCol);
-    glBindFramebuffer(GL_FRAMEBUFFER, depthFBO); glFramebufferTexture2D(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, GL_TEXTURE_2D, depthMap, 0);
-    glDrawBuffer(GL_NONE); glReadBuffer(GL_NONE); glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    glGenFramebuffers(1, &pointShadowFBO); glGenTextures(1, &depthCubemap);
-    glBindTexture(GL_TEXTURE_CUBE_MAP, depthCubemap);
-    for(int i=0; i<6; i++) glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X+i, 0, GL_DEPTH_COMPONENT, 1024, 1024, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
-    glBindFramebuffer(GL_FRAMEBUFFER, pointShadowFBO); glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, depthCubemap, 0);
-    glDrawBuffer(GL_NONE); glReadBuffer(GL_NONE); glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    texDiff = loadTexture("assets/container.jpg"), texSpec = loadTexture("assets/container_specular.png"), texNorm = loadTexture("assets/container_normal.png");
-    waterNorm = loadTexture("assets/water_normal.jpg");
-    floorDiff = loadTexture("assets/wall.jpg"), floorNorm = loadTexture("assets/wall_normal.jpg"), whiteTex = createSolidTexture(255, 255, 255), flatNormalTex = createSolidTexture(128, 128, 255);
     scene->skybox = loadCubemap({"assets/skybox/right.jpg","assets/skybox/left.jpg","assets/skybox/top.jpg","assets/skybox/bottom.jpg","assets/skybox/front.jpg","assets/skybox/back.jpg"});
+    ResourceManager::Textures["skyboxMap"] = scene->skybox;
+
+    renderer = new Renderer(SCR_WIDTH, SCR_HEIGHT);
 
     glEnable(GL_TEXTURE_CUBE_MAP_SEAMLESS);
-    IBLBaker::bake(scene->skybox, cubeVAO, scene->irradianceMap, scene->prefilterMap, scene->brdfLUT);
+    // Bake IBL
+    // IBLBaker draws cubes internally, so it needs a basic cube VAO. Let's rebuild one locally just for baker if we didn't store it globally.
+    // Wait, IBLBaker needs a cube VAO. We used to pass it cubeVAO from Application.
+    // I'll create one local cube VAO here just for the baker.
+    unsigned int bakerVao, bakerVbo;
+    float cubeV[] = { -1,-1,-1, -1,-1,1, -1,1,1, -1,1,-1, 1,-1,-1, 1,1,-1, 1,1,1, 1,-1,1, -1,-1,-1, 1,-1,-1, 1,-1,1, -1,-1,1, -1,1,-1, -1,1,1, 1,1,1, 1,1,-1, -1,-1,-1, -1,1,-1, 1,1,-1, 1,-1,-1, -1,-1,1, 1,-1,1, 1,1,1, -1,1,1 };
+    // actually just use skybox vertices 
+    float skyV[] = { -1,1,-1,-1,-1,-1,1,-1,-1,1,-1,-1,1,1,-1,-1,1,-1,-1,-1,1,-1,-1,-1,-1,1,-1,-1,1,-1,-1,1,1,-1,-1,1,1,-1,-1,1,-1,1,1,1,1,1,1,1,1,1,-1,1,-1,-1,-1,-1,1,-1,1,1,1,1,1,1,1,1,1,-1,1,-1,-1,1,-1,1,-1,1,1,-1,1,1,1,1,1,1,-1,1,1,-1,1,-1,-1,-1,-1,-1,-1,1,1,-1,-1,1,-1,-1,-1,-1,1,1,-1,1 };
+    glGenVertexArrays(1, &bakerVao); glGenBuffers(1, &bakerVbo);
+    glBindVertexArray(bakerVao); glBindBuffer(GL_ARRAY_BUFFER, bakerVbo); glBufferData(GL_ARRAY_BUFFER, sizeof(skyV), skyV, GL_STATIC_DRAW);
+    glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0); glEnableVertexAttribArray(0);
     
+    IBLBaker::bake(scene->skybox, bakerVao, scene->irradianceMap, scene->prefilterMap, scene->brdfLUT);
+    ResourceManager::Textures["irradianceMap"] = scene->irradianceMap;
+    ResourceManager::Textures["prefilterMap"] = scene->prefilterMap;
+    ResourceManager::Textures["brdfLUT"] = scene->brdfLUT;
+
     helmetModel = new Model("assets/models/DamagedHelmet.glb");
     
-    skyboxShader->use(); skyboxShader->setInt("skybox", 0);
+    ResourceManager::getShader("skybox")->use(); 
+    ResourceManager::getShader("skybox")->setInt("skybox", 0);
+    
+    ResourceManager::getShader("deferred_lighting")->use();
+    ResourceManager::getShader("deferred_lighting")->setInt("gPosition", 0);
+    ResourceManager::getShader("deferred_lighting")->setInt("gNormal", 1);
+    ResourceManager::getShader("deferred_lighting")->setInt("gAlbedo", 2);
+    ResourceManager::getShader("deferred_lighting")->setInt("gPBR", 3);
+    ResourceManager::getShader("deferred_lighting")->setInt("shadowMap", 4);
+    ResourceManager::getShader("deferred_lighting")->setInt("irradianceMap", 5);
+    ResourceManager::getShader("deferred_lighting")->setInt("prefilterMap", 6);
+    ResourceManager::getShader("deferred_lighting")->setInt("brdfLUT", 7);
+    ResourceManager::getShader("deferred_lighting")->setInt("pointShadowMap", 8);
 }
 
 void Application::loadDefaultScene() {
@@ -269,80 +219,6 @@ void Application::processInput() {
     }
 }
 
-void Application::render(glm::mat4 lSpace, float far_p, std::vector<glm::mat4> pMats) {
-    // 1. Sun Shadow Pass
-    glViewport(0,0,SHADOW_WIDTH,SHADOW_HEIGHT); glBindFramebuffer(GL_FRAMEBUFFER, depthFBO); glClear(GL_DEPTH_BUFFER_BIT);
-    glEnable(GL_CULL_FACE); glCullFace(GL_FRONT);
-    shadowShader->use(); shadowShader->setMat4("lightSpaceMatrix", lSpace);
-    Renderer::renderEntities(*shadowShader, scene->entities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, 0,0,0,0,0,0, whiteTex, flatNormalTex, useNormalMap, glm::vec3(0));
-    advShadowShader->use(); advShadowShader->setMat4("lightSpaceMatrix", lSpace);
-    advShadowShader->setFloat("tessLevel", tessLevel); advShadowShader->setFloat("explosionFactor", explosionFactor);
-    Renderer::renderEntities(*advShadowShader, scene->entities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, 0,0,0,0,0,0, whiteTex, flatNormalTex, useNormalMap, glm::vec3(0));
-    glCullFace(GL_BACK); glDisable(GL_CULL_FACE); glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    // 2. Point Shadow Pass
-    glm::vec3 pP(-2,2,1); // Find actual point light pos
-    for(const auto& e : scene->entities){ if(e.name=="Point Light") pP=e.position; }
-
-    glViewport(0,0,1024,1024); glBindFramebuffer(GL_FRAMEBUFFER, pointShadowFBO); glClear(GL_DEPTH_BUFFER_BIT);
-    pointShadowShader->use(); for(int i=0;i<6;i++) pointShadowShader->setMat4("shadowMatrices["+std::to_string(i)+"]", pMats[i]);
-    pointShadowShader->setFloat("far_plane", far_p); pointShadowShader->setVec3("lightPos", pP);
-    Renderer::renderEntities(*pointShadowShader, scene->entities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, 0,0,0,0,0,0, whiteTex, flatNormalTex, useNormalMap, glm::vec3(0));
-    advPointShadowShader->use(); for(int i=0;i<6;i++) advPointShadowShader->setMat4("shadowMatrices["+std::to_string(i)+"]", pMats[i]);
-    advPointShadowShader->setFloat("far_plane", far_p); advPointShadowShader->setVec3("lightPos", pP);
-    advPointShadowShader->setFloat("tessLevel", tessLevel); advPointShadowShader->setFloat("explosionFactor", explosionFactor);
-    Renderer::renderEntities(*advPointShadowShader, scene->entities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, 0,0,0,0,0,0, whiteTex, flatNormalTex, useNormalMap, glm::vec3(0));
-    glBindFramebuffer(GL_FRAMEBUFFER, 0);
-
-    // 3. Main Pass
-    glViewport(0,0,SCR_WIDTH,SCR_HEIGHT); glClear(GL_COLOR_BUFFER_BIT|GL_DEPTH_BUFFER_BIT);
-    ourShader->use(); ourShader->setMat4("projection", glm::perspective(glm::radians(scene->camera.Zoom),(float)SCR_WIDTH/SCR_HEIGHT,0.1f,100.0f));
-    ourShader->setMat4("view", scene->camera.GetViewMatrix()); ourShader->setMat4("lightSpaceMatrix", lSpace); 
-    ourShader->setVec3("viewPos", scene->camera.Position); ourShader->setFloat("far_plane", far_p);
-    
-    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, depthMap);
-    glActiveTexture(GL_TEXTURE4); glBindTexture(GL_TEXTURE_CUBE_MAP, scene->skybox);
-    glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_CUBE_MAP, scene->irradianceMap);
-    glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_CUBE_MAP, scene->prefilterMap);
-    glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, scene->brdfLUT);
-    glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_CUBE_MAP, depthCubemap);
-
-    // Skybox
-    glDepthFunc(GL_LEQUAL); skyboxShader->use();
-    skyboxShader->setMat4("view", glm::mat4(glm::mat3(scene->camera.GetViewMatrix()))); skyboxShader->setMat4("projection", glm::perspective(glm::radians(scene->camera.Zoom), (float)SCR_WIDTH/SCR_HEIGHT, 0.1f, 100.0f));
-    glBindVertexArray(skVAO); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_CUBE_MAP, scene->skybox); glDrawArrays(GL_TRIANGLES, 0, 36);
-    glDepthFunc(GL_LESS);
-
-    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-    
-    Renderer::renderEntities(*ourShader, scene->entities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, texDiff, texSpec, texNorm, floorDiff, floorNorm, waterNorm, whiteTex, flatNormalTex, useNormalMap, scene->camera.Position);
-    
-    advShader->use();
-    advShader->setMat4("projection", glm::perspective(glm::radians(scene->camera.Zoom),(float)SCR_WIDTH/SCR_HEIGHT,0.1f,100.0f));
-    advShader->setMat4("view", scene->camera.GetViewMatrix());
-    advShader->setMat4("lightSpaceMatrix", lSpace);
-    advShader->setVec3("viewPos", scene->camera.Position);
-    advShader->setFloat("far_plane", far_p);
-    advShader->setFloat("tessLevel", tessLevel);
-    advShader->setFloat("explosionFactor", explosionFactor);
-    
-    advShader->setInt("shadowMap", 3);
-    advShader->setInt("skybox", 4);
-    advShader->setInt("irradianceMap", 5);
-    advShader->setInt("prefilterMap", 6);
-    advShader->setInt("brdfLUT", 7);
-    advShader->setInt("pointShadowMap", 8);
-    
-    Renderer::renderEntities(*advShader, scene->entities, cubeVAO, floorVAO, sphereVAO, sphereCount, icoVAO, icoCount, texDiff, texSpec, texNorm, floorDiff, floorNorm, waterNorm, whiteTex, flatNormalTex, useNormalMap, scene->camera.Position);
-    
-    particleShader->use();
-    particleShader->setMat4("projection", glm::perspective(glm::radians(scene->camera.Zoom), (float)SCR_WIDTH / SCR_HEIGHT, 0.1f, 100.0f));
-    particleShader->setMat4("view", scene->camera.GetViewMatrix());
-    Renderer::renderParticles(*particleShader, scene->entities, (float)glfwGetTime(), pSpread, pSize, pCount);
-
-    glDisable(GL_BLEND);
-}
-
 void Application::renderImGui() {
     ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplGlfw_NewFrame(); ImGui::NewFrame();
     { ImGui::Begin("Scene Hierarchy");
@@ -350,7 +226,7 @@ void Application::renderImGui() {
       ImGui::SameLine(); if (ImGui::Button("Add Sphere")) { Entity e("New Sphere", SPHERE, scene->camera.Position + scene->camera.Front*2.0f); e.localBounds = AABB(glm::vec3(-1), glm::vec3(1)); scene->addEntity(e); }
       ImGui::SameLine(); if (ImGui::Button("Add Adv Sphere")) { Entity e("Adv Sphere", ADV_SPHERE, scene->camera.Position + scene->camera.Front*2.0f, glm::vec3(0.8,0.2,0.5)); e.localBounds = AABB(glm::vec3(-1), glm::vec3(1)); scene->addEntity(e); }
       ImGui::SameLine(); if (ImGui::Button("Add Water")) { Entity w("Water", WATER, scene->camera.Position + scene->camera.Front*5.0f, glm::vec3(0.1,0.4,0.8)); w.roughness=0.05f; w.reflectivity=0.4f; w.hasCollision=false; scene->addEntity(w); }
-      ImGui::SameLine(); if (ImGui::Button("Add Sun")) { Entity s("Sun", CUBE, scene->camera.Position + scene->camera.Front*5.0f, glm::vec3(1,0.95,0.8)); s.isLight=true; s.lightColor=glm::vec3(1,0.95,0.8); s.lightIntensity=2.0f; s.scale=glm::vec3(0.2f); s.hasCollision=false; scene->addEntity(s); }
+      ImGui::SameLine(); if (ImGui::Button("Add Sun")) { Entity s("Main Sun", CUBE, scene->camera.Position + scene->camera.Front*5.0f, glm::vec3(1,0.95,0.8)); s.isLight=true; s.lightColor=glm::vec3(1,0.95,0.8); s.lightIntensity=2.0f; s.scale=glm::vec3(0.2f); s.hasCollision=false; scene->addEntity(s); }
       ImGui::SameLine(); if (ImGui::Button("Add Light")) { Entity p("Point Light", CUBE, scene->camera.Position + scene->camera.Front*3.0f, glm::vec3(1,0.5,0)); p.isLight=true; p.lightColor=glm::vec3(1,0.5,0); p.lightIntensity=2.0f; p.scale=glm::vec3(0.2f); p.hasCollision=false; scene->addEntity(p); }
       ImGui::Separator();
       for (int i=0; i<scene->entities.size(); i++) if (ImGui::Selectable((scene->entities[i].name + "##" + std::to_string(i)).c_str(), selectedEntityIndex == i)) selectedEntityIndex = i;
@@ -399,17 +275,8 @@ void Application::run() {
         processInput();
         scene->update(deltaTime, cur, light2Moving);
 
-        glm::vec3 sP(5,10,5), pP(-2,2,1);
-        for(const auto& e : scene->entities){ if(e.name=="Main Sun") sP=e.position; if(e.name=="Point Light") pP=e.position; }
-
-        glm::mat4 lProj=glm::ortho(-10.0f,10.0f,-10.0f,10.0f,1.0f,30.0f), lView=glm::lookAt(sP,glm::vec3(0),glm::vec3(0,1,0)), lSpace=lProj*lView;
-        float far_p=25.0f; glm::mat4 pProj=glm::perspective(glm::radians(90.0f),1.0f,1.0f,far_p);
-        std::vector<glm::mat4> pMats;
-        pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(1,0,0),glm::vec3(0,-1,0))); pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(-1,0,0),glm::vec3(0,-1,0)));
-        pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(0,1,0),glm::vec3(0,0,1))); pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(0,-1,0),glm::vec3(0,0,-1)));
-        pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(0,0,1),glm::vec3(0,-1,0))); pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(0,0,-1),glm::vec3(0,-1,0)));
-
-        render(lSpace, far_p, pMats);
+        renderer->renderScene(scene, useNormalMap, tessLevel, explosionFactor, pSpread, pSize, pCount);
+        
         renderImGui();
         
         glfwSwapBuffers(window); glfwPollEvents();
@@ -429,20 +296,9 @@ void Application::mouse_callback(GLFWwindow* window, double xposIn, double yposI
     s_instance->scene->camera.ProcessMouseMovement(xoff, yoff);
 }
 
-unsigned int Application::loadTexture(const char *path) {
-    unsigned int tid; glGenTextures(1, &tid); int w,h,c; unsigned char *d = stbi_load(path, &w, &h, &c, 0);
-    if(d){ GLenum f=(c==1)?GL_RED:(c==3?GL_RGB:GL_RGBA); glBindTexture(GL_TEXTURE_2D, tid); glTexImage2D(GL_TEXTURE_2D, 0, f, w, h, 0, f, GL_UNSIGNED_BYTE, d); glGenerateMipmap(GL_TEXTURE_2D); }
-    else { unsigned char fb[]={180,180,180}; glBindTexture(GL_TEXTURE_2D, tid); glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, fb); }
-    stbi_image_free(d); return tid;
-}
-
 unsigned int Application::loadCubemap(std::vector<std::string> faces) {
     unsigned int tid; glGenTextures(1, &tid); glBindTexture(GL_TEXTURE_CUBE_MAP, tid); stbi_set_flip_vertically_on_load(false);
     for(int i=0; i<6; i++){ int w,h,c; unsigned char *d=stbi_load(faces[i].c_str(), &w, &h, &c, 0); if(d) glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X+i, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, d); stbi_image_free(d); }
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
     stbi_set_flip_vertically_on_load(true); return tid;
-}
-
-unsigned int Application::createSolidTexture(unsigned char r, unsigned char g, unsigned char b) {
-    unsigned int tid; glGenTextures(1, &tid); unsigned char d[]={r,g,b}; glBindTexture(GL_TEXTURE_2D, tid); glTexImage2D(GL_TEXTURE_2D, 0, GL_RGB, 1, 1, 0, GL_RGB, GL_UNSIGNED_BYTE, d); return tid;
 }
