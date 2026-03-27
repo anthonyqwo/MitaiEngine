@@ -54,7 +54,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 )
 
 target_link_libraries(${PROJECT_NAME} PRIVATE 
-    glfw glm::glm assimp::assimp opengl32
+    glfw glm::glm assimp::assimp opengl32 imm32
 )
 
 if(WIN32)

@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <string>
+#include "Collider.h"
 
 enum EntityType { CUBE, SPHERE, ICOSAHEDRON, ADV_SPHERE, FLOOR, PARTICLE, WATER, MODEL };
 
@@ -35,9 +36,19 @@ struct Entity {
     // 動態紋理
     bool dynamicTexture = false;
     float texSpeed = 0.1f;
+    
+    // 碰撞感測
+    bool hasCollision = true;
+    AABB localBounds;
 
     Entity(std::string n, EntityType t, glm::vec3 pos = glm::vec3(0.0f), glm::vec3 col = glm::vec3(1.0f))
         : name(n), type(t), position(pos), rotation(0.0f), scale(1.0f), color(col) {}
+        
+    AABB getGlobalBounds() const {
+        glm::vec3 globalMin = position + localBounds.minExtents * scale;
+        glm::vec3 globalMax = position + localBounds.maxExtents * scale;
+        return AABB(glm::min(globalMin, globalMax), glm::max(globalMin, globalMax));
+    }
 
     glm::mat4 getModelMatrix() const {
         glm::mat4 model = glm::mat4(1.0f);

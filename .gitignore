@@ -2,3 +2,5 @@
 GEMINI.md
 
 build/
+
+.cache/

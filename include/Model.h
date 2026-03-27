@@ -11,6 +11,8 @@
 
 #include "Mesh.h"
 #include "Shader.h"
+#include "Collider.h"
+#include <algorithm>
 
 #include <string>
 #include <fstream>
@@ -27,9 +29,26 @@ public:
     std::vector<Mesh>    meshes;
     std::string directory;
     bool gammaCorrection;
+    AABB localBounds;
 
     Model(std::string const &path, bool gamma = false) : gammaCorrection(gamma) {
         loadModel(path);
+        calculateBounds();
+    }
+    
+    void calculateBounds() {
+        if (meshes.empty()) return;
+        glm::vec3 minE = meshes[0].localBounds.minExtents;
+        glm::vec3 maxE = meshes[0].localBounds.maxExtents;
+        for (const auto& m : meshes) {
+            minE.x = std::min(minE.x, m.localBounds.minExtents.x);
+            minE.y = std::min(minE.y, m.localBounds.minExtents.y);
+            minE.z = std::min(minE.z, m.localBounds.minExtents.z);
+            maxE.x = std::max(maxE.x, m.localBounds.maxExtents.x);
+            maxE.y = std::max(maxE.y, m.localBounds.maxExtents.y);
+            maxE.z = std::max(maxE.z, m.localBounds.maxExtents.z);
+        }
+        localBounds = AABB(minE, maxE);
     }
 
     void Draw(const Shader &shader) {
@@ -198,7 +217,7 @@ private:
     }
 };
 
-unsigned int TextureFromFile(const char *path, const std::string &directory, bool gamma) {
+inline unsigned int TextureFromFile(const char *path, const std::string &directory, bool gamma) {
     std::string filename = std::string(path);
     filename = directory + "/" + filename;
 

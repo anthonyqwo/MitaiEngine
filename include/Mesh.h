@@ -7,6 +7,7 @@
 #include "Shader.h"
 #include <string>
 #include <vector>
+#include "Collider.h"
 
 struct Vertex {
     glm::vec3 Position;
@@ -28,12 +29,29 @@ public:
     std::vector<unsigned int> indices;
     std::vector<Texture>      textures;
     unsigned int VAO;
+    AABB localBounds;
 
     Mesh(std::vector<Vertex> vertices, std::vector<unsigned int> indices, std::vector<Texture> textures) {
         this->vertices = vertices;
         this->indices = indices;
         this->textures = textures;
+        calculateBounds();
         setupMesh();
+    }
+    
+    void calculateBounds() {
+        if (vertices.empty()) return;
+        glm::vec3 minE = vertices[0].Position;
+        glm::vec3 maxE = vertices[0].Position;
+        for (const auto& v : vertices) {
+            minE.x = std::min(minE.x, v.Position.x);
+            minE.y = std::min(minE.y, v.Position.y);
+            minE.z = std::min(minE.z, v.Position.z);
+            maxE.x = std::max(maxE.x, v.Position.x);
+            maxE.y = std::max(maxE.y, v.Position.y);
+            maxE.z = std::max(maxE.z, v.Position.z);
+        }
+        localBounds = AABB(minE, maxE);
     }
 
     void Draw(const Shader &shader) {
