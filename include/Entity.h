@@ -17,6 +17,7 @@ struct Entity {
     glm::vec3 rotation;
     glm::vec3 scale;
     glm::vec3 color;
+    glm::vec3 originalColor;
     bool visible = true;
     
     // 模型資源
@@ -37,12 +38,15 @@ struct Entity {
     bool dynamicTexture = false;
     float texSpeed = 0.1f;
     
-    // 碰撞感測
+    // 碰撞感測與物理加速
     bool hasCollision = true;
     AABB localBounds;
+    glm::vec3 velocity = glm::vec3(0.0f);
+    float radius = 0.5f;
+    float mass = 1.0f;
 
     Entity(std::string n, EntityType t, glm::vec3 pos = glm::vec3(0.0f), glm::vec3 col = glm::vec3(1.0f))
-        : name(n), type(t), position(pos), rotation(0.0f), scale(1.0f), color(col) {}
+        : name(n), type(t), position(pos), rotation(0.0f), scale(1.0f), color(col), originalColor(col) {}
         
     AABB getGlobalBounds() const {
         glm::vec3 globalMin = position + localBounds.minExtents * scale;

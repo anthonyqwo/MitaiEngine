@@ -38,8 +38,13 @@ void Renderer::setupGBuffer() {
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
     glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT3, GL_TEXTURE_2D, gPBR, 0);
 
-    unsigned int attachments[4] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3 };
-    glDrawBuffers(4, attachments);
+    glGenTextures(1, &gEmissive); glBindTexture(GL_TEXTURE_2D, gEmissive);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA16F, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    glFramebufferTexture2D(GL_FRAMEBUFFER, GL_COLOR_ATTACHMENT4, GL_TEXTURE_2D, gEmissive, 0);
+
+    unsigned int attachments[5] = { GL_COLOR_ATTACHMENT0, GL_COLOR_ATTACHMENT1, GL_COLOR_ATTACHMENT2, GL_COLOR_ATTACHMENT3, GL_COLOR_ATTACHMENT4 };
+    glDrawBuffers(5, attachments);
 
     glGenRenderbuffers(1, &rboDepth); glBindRenderbuffer(GL_RENDERBUFFER, rboDepth);
     glRenderbufferStorage(GL_RENDERBUFFER, GL_DEPTH_COMPONENT, SCR_WIDTH, SCR_HEIGHT);
@@ -110,13 +115,16 @@ void Renderer::renderQuad() {
 
 // -----------------------------------------------------
 
-void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, float explosionFactor, float pSpread, float pSize, float pCount) {
+void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, float explosionFactor, float pSpread, float pSize, float pCount, bool multiView) {
     // 0. Shadow Pass
     glm::vec3 sP(5,10,5), pP(-2,2,1);
     for(const auto& e : scene->entities){ if(e.name=="Main Sun") sP=e.position; if(e.name=="Point Light") pP=e.position; }
 
-    glm::mat4 lProj=glm::ortho(-10.0f,10.0f,-10.0f,10.0f,1.0f,30.0f), lView=glm::lookAt(sP,glm::vec3(0),glm::vec3(0,1,0)), lSpace=lProj*lView;
-    float far_p=25.0f; glm::mat4 pProj=glm::perspective(glm::radians(90.0f),1.0f,1.0f,far_p);
+    // Fix degenerate lookAt when sun is directly above (direction parallel to up)
+    glm::vec3 sunDir = glm::normalize(glm::vec3(0) - sP);
+    glm::vec3 shadowUp = (glm::abs(glm::dot(sunDir, glm::vec3(0,1,0))) > 0.99f) ? glm::vec3(0,0,1) : glm::vec3(0,1,0);
+    glm::mat4 lProj=glm::ortho(-15.0f,15.0f,-15.0f,15.0f,0.5f,40.0f), lView=glm::lookAt(sP,glm::vec3(0),shadowUp), lSpace=lProj*lView;
+    float far_p=30.0f; glm::mat4 pProj=glm::perspective(glm::radians(90.0f),1.0f,1.0f,far_p);
     std::vector<glm::mat4> pMats;
     pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(1,0,0),glm::vec3(0,-1,0))); pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(-1,0,0),glm::vec3(0,-1,0)));
     pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(0,1,0),glm::vec3(0,0,1))); pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(0,-1,0),glm::vec3(0,0,-1)));
@@ -133,6 +141,7 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
     renderEntitiesToGBuffer(shadowShader, scene->entities, false);
     advShadowShader->use(); advShadowShader->setMat4("lightSpaceMatrix", lSpace);
     advShadowShader->setFloat("tessLevel", tessLevel); advShadowShader->setFloat("explosionFactor", explosionFactor);
+    advShadowShader->setBool("isShadowPass", true);
     renderEntitiesToGBuffer(advShadowShader, scene->entities, false);
     glCullFace(GL_BACK); glDisable(GL_CULL_FACE); glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -146,37 +155,53 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
     renderEntitiesToGBuffer(advPointShadowShader, scene->entities, false);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
+    struct VP { int x, y, w, h; glm::mat4 view; glm::mat4 proj; glm::vec3 pos; };
+    std::vector<VP> viewports;
+    if (multiView) {
+        float hw = SCR_WIDTH/2.0f; float hh = SCR_HEIGHT/2.0f;
+        float aspect = hw / hh; // 960/540 = 16:9
+        float orthoH = 15.0f; // vertical half-size
+        float orthoW = orthoH * aspect; // horizontal half-size scaled to aspect ratio
+        glm::mat4 oProj = glm::ortho(-orthoW, orthoW, -orthoH, orthoH, 0.1f, 100.0f);
+        glm::mat4 pProj = glm::perspective(glm::radians(scene->camera.Zoom), hw/hh, 0.1f, 100.0f);
+        viewports.push_back({0, (int)hh, (int)hw, (int)hh, glm::lookAt(glm::vec3(0, 30, 0), glm::vec3(0, 0, 0), glm::vec3(0, 0, -1)), oProj, glm::vec3(0, 30, 0)}); // Top
+        viewports.push_back({(int)hw, (int)hh, (int)hw, (int)hh, scene->camera.GetViewMatrix(), pProj, scene->camera.Position}); // Perspective
+        viewports.push_back({0, 0, (int)hw, (int)hh, glm::lookAt(glm::vec3(0, 10.5f, 10.4f), glm::vec3(0, 10.5f, 0), glm::vec3(0, 1, 0)), oProj, glm::vec3(0, 10.5f, 10.4f)}); // Front
+        viewports.push_back({(int)hw, 0, (int)hw, (int)hh, glm::lookAt(glm::vec3(10.4f, 10.5f, 0), glm::vec3(0, 10.5f, 0), glm::vec3(0, 1, 0)), oProj, glm::vec3(10.4f, 10.5f, 0)}); // Side
+    } else {
+        viewports.push_back({0, 0, (int)SCR_WIDTH, (int)SCR_HEIGHT, scene->camera.GetViewMatrix(), glm::perspective(glm::radians(scene->camera.Zoom),(float)SCR_WIDTH/SCR_HEIGHT,0.1f,100.0f), scene->camera.Position});
+    }
+
     // 1. Geometry Pass (G-Buffer)
-    glViewport(0,0,SCR_WIDTH,SCR_HEIGHT);
     glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
     Shader* gbufferShader = ResourceManager::getShader("gbuffer");
-    gbufferShader->use();
-    gbufferShader->setMat4("projection", glm::perspective(glm::radians(scene->camera.Zoom),(float)SCR_WIDTH/SCR_HEIGHT,0.1f,100.0f));
-    gbufferShader->setMat4("view", scene->camera.GetViewMatrix());
-    renderEntitiesToGBuffer(gbufferShader, scene->entities, useNormalMap);
-
     Shader* advGbufferShader = ResourceManager::getShader("advGbuffer");
-    advGbufferShader->use();
-    advGbufferShader->setMat4("projection", glm::perspective(glm::radians(scene->camera.Zoom),(float)SCR_WIDTH/SCR_HEIGHT,0.1f,100.0f));
-    advGbufferShader->setMat4("view", scene->camera.GetViewMatrix());
-    advGbufferShader->setFloat("tessLevel", tessLevel);
-    advGbufferShader->setFloat("explosionFactor", explosionFactor);
-    renderEntitiesToGBuffer(advGbufferShader, scene->entities, useNormalMap);
-
+    
+    for (const auto& vp : viewports) {
+        glViewport(vp.x, vp.y, vp.w, vp.h);
+        gbufferShader->use();
+        gbufferShader->setMat4("projection", vp.proj); gbufferShader->setMat4("view", vp.view);
+        renderEntitiesToGBuffer(gbufferShader, scene->entities, useNormalMap);
+        advGbufferShader->use();
+        advGbufferShader->setMat4("projection", vp.proj); advGbufferShader->setMat4("view", vp.view);
+        advGbufferShader->setFloat("tessLevel", tessLevel); advGbufferShader->setFloat("explosionFactor", explosionFactor);
+        renderEntitiesToGBuffer(advGbufferShader, scene->entities, useNormalMap);
+    }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     // 2. Deferred Lighting Pass
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     Shader* defLightShader = ResourceManager::getShader("deferred_lighting");
     defLightShader->use();
-    defLightShader->setVec3("viewPos", scene->camera.Position);
     defLightShader->setMat4("lightSpaceMatrix", lSpace);
     defLightShader->setFloat("far_plane", far_p);
 
-    // Map light arrays
+    // Reset dirLight to zero so missing/invisible Main Sun doesn't retain old values
+    defLightShader->setVec3("dirLight.color", glm::vec3(0.0f));
+    
     int pointLightIdx = 0;
     for(const auto& e : scene->entities){
         if(!e.isLight || !e.visible) continue;
@@ -203,8 +228,13 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
     glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_CUBE_MAP, ResourceManager::getTexture("prefilterMap"));
     glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("brdfLUT"));
     glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_CUBE_MAP, depthCubemap);
+    glActiveTexture(GL_TEXTURE9); glBindTexture(GL_TEXTURE_2D, gEmissive);
 
-    renderQuad();
+    for (const auto& vp : viewports) {
+        glViewport(vp.x, vp.y, vp.w, vp.h);
+        defLightShader->setVec3("viewPos", vp.pos);
+        renderQuad();
+    }
 
     // 3. Forward Pass (Depth blit + Transparents + Unlit items)
     glBindFramebuffer(GL_READ_FRAMEBUFFER, gBuffer);
@@ -212,92 +242,83 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
     glBlitFramebuffer(0, 0, SCR_WIDTH, SCR_HEIGHT, 0, 0, SCR_WIDTH, SCR_HEIGHT, GL_DEPTH_BUFFER_BIT, GL_NEAREST);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
-    // Skybox
-    glDepthFunc(GL_LEQUAL); 
     Shader* skyboxShader = ResourceManager::getShader("skybox");
-    skyboxShader->use();
-    skyboxShader->setMat4("view", glm::mat4(glm::mat3(scene->camera.GetViewMatrix()))); 
-    skyboxShader->setMat4("projection", glm::perspective(glm::radians(scene->camera.Zoom), (float)SCR_WIDTH/SCR_HEIGHT, 0.1f, 100.0f));
-    glBindVertexArray(skVAO); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_CUBE_MAP, ResourceManager::getTexture("skyboxMap")); glDrawArrays(GL_TRIANGLES, 0, 36);
-    glDepthFunc(GL_LESS);
-
-    glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
-
-    // Forward Water
     Shader* forwardWaterShader = ResourceManager::getShader("forward_water");
-    forwardWaterShader->use();
-    forwardWaterShader->setMat4("projection", glm::perspective(glm::radians(scene->camera.Zoom),(float)SCR_WIDTH/SCR_HEIGHT,0.1f,100.0f));
-    forwardWaterShader->setMat4("view", scene->camera.GetViewMatrix());
-    forwardWaterShader->setVec3("viewPos", scene->camera.Position);
-    forwardWaterShader->setFloat("time", (float)glfwGetTime());
-    // Lights for water
-    for(const auto& e : scene->entities){
-        if(!e.isLight || !e.visible) continue;
-        if(e.name == "Main Sun") {
-            forwardWaterShader->setVec3("light1.position", e.position);
-            forwardWaterShader->setVec3("light1.color", e.lightColor * e.lightIntensity);
-        } else if(e.name == "Point Light") {
-            forwardWaterShader->setVec3("light2.position", e.position);
-            forwardWaterShader->setVec3("light2.color", e.lightColor * e.lightIntensity);
-        }
-    }
-    // Water textures
-    glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, depthMap);
-    glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_CUBE_MAP, ResourceManager::getTexture("irradianceMap"));
-    glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_CUBE_MAP, ResourceManager::getTexture("prefilterMap"));
-    glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("brdfLUT"));
-    glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_CUBE_MAP, depthCubemap);
-
-    // Hack: Reuse renderEntitiesToGBuffer but with WATER type only trick if we override the shader's types,
-    // actually it's easier to just write a short loop here
-    unsigned int floorDiff = ResourceManager::getTexture("floorDiff");
-    unsigned int waterNorm = ResourceManager::getTexture("waterNorm");
-    for (const auto& e : scene->entities) {
-        if (!e.visible || e.type != WATER) continue;
-        forwardWaterShader->setMat4("model", e.getModelMatrix());
-        forwardWaterShader->setFloat("roughness", e.roughness);
-        forwardWaterShader->setFloat("metallic", e.metallic);
-        forwardWaterShader->setFloat("material.ambientStrength", e.ambient);
-        forwardWaterShader->setVec3("objectColor", e.color);
-        forwardWaterShader->setFloat("reflectivity", e.reflectivity);
-        forwardWaterShader->setBool("isWater", true);
-        
-        glm::mat4 texMat(1.0f);
-        if (e.dynamicTexture) texMat = glm::translate(texMat, glm::vec3((float)glfwGetTime() * e.texSpeed, 0.0f, 0.0f));
-        forwardWaterShader->setMat4("textureMatrix", texMat);
-        
-        glBindVertexArray(floorVAO); 
-        glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, floorDiff);
-        glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, waterNorm);
-        glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));      
-        glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));      
-        glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));
-        glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("blackTex"));
-        glDrawArrays(GL_TRIANGLES, 0, 6);
-    }
-
-    // Unlit entities (Lights)
     Shader* unlitShader = ResourceManager::getShader("unlit");
-    unlitShader->use();
-    unlitShader->setMat4("projection", glm::perspective(glm::radians(scene->camera.Zoom),(float)SCR_WIDTH/SCR_HEIGHT,0.1f,100.0f));
-    unlitShader->setMat4("view", scene->camera.GetViewMatrix());
-    for (const auto& e : scene->entities) {
-        if (e.isLight && e.visible) {
-            unlitShader->setMat4("model", e.getModelMatrix());
-            unlitShader->setVec3("objectColor", e.lightColor * e.lightIntensity);
-            glBindVertexArray(cubeVAO);
-            glDrawArrays(GL_TRIANGLES, 0, 36);
-        }
-    }
-
-    // Particles
     Shader* particleShader = ResourceManager::getShader("particle");
-    particleShader->use();
-    particleShader->setMat4("projection", glm::perspective(glm::radians(scene->camera.Zoom), (float)SCR_WIDTH / SCR_HEIGHT, 0.1f, 100.0f));
-    particleShader->setMat4("view", scene->camera.GetViewMatrix());
-    renderParticles(particleShader, scene->entities, (float)glfwGetTime(), pSpread, pSize, pCount);
+    
+    for (const auto& vp : viewports) {
+        glViewport(vp.x, vp.y, vp.w, vp.h);
+        
+        glDepthFunc(GL_LEQUAL); 
+        skyboxShader->use();
+        skyboxShader->setMat4("view", glm::mat4(glm::mat3(vp.view))); 
+        skyboxShader->setMat4("projection", vp.proj);
+        glBindVertexArray(skVAO); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_CUBE_MAP, ResourceManager::getTexture("skyboxMap")); glDrawArrays(GL_TRIANGLES, 0, 36);
+        glDepthFunc(GL_LESS);
 
-    glDisable(GL_BLEND);
+        glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        forwardWaterShader->use();
+        forwardWaterShader->setMat4("projection", vp.proj);
+        forwardWaterShader->setMat4("view", vp.view);
+        forwardWaterShader->setVec3("viewPos", vp.pos);
+        forwardWaterShader->setFloat("time", (float)glfwGetTime());
+        // Reset water light uniforms to zero before the loop
+        // so invisible/removed lights properly become dark
+        forwardWaterShader->setVec3("light1.color", glm::vec3(0.0f));
+        forwardWaterShader->setVec3("light2.color", glm::vec3(0.0f));
+        // Lights for water
+        for(const auto& e : scene->entities){
+            if(!e.isLight || !e.visible) continue;
+            if(e.name == "Main Sun") {
+                forwardWaterShader->setVec3("light1.position", e.position);
+                forwardWaterShader->setVec3("light1.color", e.lightColor * e.lightIntensity);
+            } else if(e.name == "Point Light") {
+                forwardWaterShader->setVec3("light2.position", e.position);
+                forwardWaterShader->setVec3("light2.color", e.lightColor * e.lightIntensity);
+            }
+        }
+        forwardWaterShader->setMat4("lightSpaceMatrix", lSpace);
+        forwardWaterShader->setFloat("far_plane", far_p);
+
+        // Water textures
+        glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, depthMap);
+        glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_CUBE_MAP, ResourceManager::getTexture("irradianceMap"));
+        glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_CUBE_MAP, ResourceManager::getTexture("prefilterMap"));
+        glActiveTexture(GL_TEXTURE7); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("brdfLUT"));
+        glActiveTexture(GL_TEXTURE8); glBindTexture(GL_TEXTURE_CUBE_MAP, depthCubemap);
+        unsigned int floorDiff = ResourceManager::getTexture("floorDiff");
+        unsigned int waterNorm = ResourceManager::getTexture("waterNorm");
+        for (const auto& e : scene->entities) {
+            if (!e.visible || e.type != WATER) continue;
+            forwardWaterShader->setMat4("model", e.getModelMatrix());
+            forwardWaterShader->setFloat("roughness", e.roughness); forwardWaterShader->setFloat("metallic", e.metallic);
+            forwardWaterShader->setFloat("material.ambientStrength", e.ambient); forwardWaterShader->setVec3("objectColor", e.color);
+            forwardWaterShader->setFloat("reflectivity", e.reflectivity); forwardWaterShader->setBool("isWater", true);
+            glm::mat4 texMat(1.0f); if(e.dynamicTexture) texMat=glm::translate(texMat, glm::vec3((float)glfwGetTime()*e.texSpeed, 0.0f, 0.0f));
+            forwardWaterShader->setMat4("textureMatrix", texMat);
+            glBindVertexArray(floorVAO); 
+            glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, floorDiff); glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, waterNorm);
+            glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));      
+            glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("blackTex"));
+            glDrawArrays(GL_TRIANGLES, 0, 6);
+        }
+
+        unlitShader->use();
+        unlitShader->setMat4("projection", vp.proj); unlitShader->setMat4("view", vp.view);
+        for (const auto& e : scene->entities) {
+            if (e.isLight && e.visible) {
+                unlitShader->setMat4("model", e.getModelMatrix()); unlitShader->setVec3("objectColor", e.lightColor * e.lightIntensity);
+                glBindVertexArray(cubeVAO); glDrawArrays(GL_TRIANGLES, 0, 36);
+            }
+        }
+
+        particleShader->use();
+        particleShader->setMat4("projection", vp.proj); particleShader->setMat4("view", vp.view);
+        renderParticles(particleShader, scene->entities, (float)glfwGetTime(), pSpread, pSize, pCount);
+
+        glDisable(GL_BLEND);
+    }
 }
 
 void Renderer::renderEntitiesToGBuffer(Shader* shader, const std::vector<Entity>& entities, bool useNormalMap) {

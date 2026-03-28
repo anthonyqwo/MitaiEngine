@@ -13,6 +13,7 @@ layout(binding = 5) uniform samplerCube irradianceMap;
 layout(binding = 6) uniform samplerCube prefilterMap;
 layout(binding = 7) uniform sampler2D brdfLUT;
 layout(binding = 8) uniform samplerCube pointShadowMap;
+layout(binding = 9) uniform sampler2D gEmissiveMap;
 
 struct PointLight {
     vec3 position;
@@ -41,7 +42,7 @@ float ShadowCalculation(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir) {
     projCoords = projCoords * 0.5 + 0.5;
     if(projCoords.z > 1.0) return 0.0;
     float currentDepth = projCoords.z;
-    float bias = max(0.02 * (1.0 - dot(normal, lightDir)), 0.002);
+    float bias = max(0.005 * (1.0 - dot(normal, lightDir)), 0.001);
     float shadow = 0.0;
     vec2 texelSize = 1.0 / textureSize(shadowMap, 0);
     for(int x = -1; x <= 1; ++x) {
@@ -110,8 +111,9 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
 }
 
 void main() {
-    vec3 FragPos = texture(gPosition, TexCoords).rgb;
-    vec4 NormalRefl = texture(gNormal, TexCoords);
+    vec2 tc = gl_FragCoord.xy / vec2(textureSize(gPosition, 0));
+    vec3 FragPos = texture(gPosition, tc).rgb;
+    vec4 NormalRefl = texture(gNormal, tc);
     vec3 N = NormalRefl.rgb;
     
     // 如果法線長度小於0.5，代表這是天空盒（或是背景），直接過
@@ -120,8 +122,8 @@ void main() {
     }
 
     float reflectivity = NormalRefl.a;
-    vec3 albedo = texture(gAlbedo, TexCoords).rgb;
-    vec4 pbr = texture(gPBR, TexCoords);
+    vec3 albedo = texture(gAlbedo, tc).rgb;
+    vec4 pbr = texture(gPBR, tc);
     float m = pbr.r;
     float r = pbr.g;
     float aoSample = pbr.b;
@@ -134,12 +136,10 @@ void main() {
     vec3 F0 = mix(vec3(0.04), albedo, m);
     vec3 directLo = vec3(0.0);
 
-    // 1. 主燈 (Main Sun)
+    // 1. 主燈 (Main Sun) - Directional Light, no distance attenuation
     if(length(dirLight.color) > 0.01) {
-        vec3 L = normalize(dirLight.position - FragPos); 
+        vec3 L = normalize(dirLight.position);  // position used as light direction
         vec3 H = normalize(V + L);
-        float dist = length(dirLight.position - FragPos);
-        float atten = 1.0 / (dist * dist + 0.001); 
         vec4 fragPosLightSpace = lightSpaceMatrix * vec4(FragPos, 1.0);
         float shadow = ShadowCalculation(fragPosLightSpace, N, L);
         float NdotL = max(dot(N, L), 0.0);
@@ -148,7 +148,7 @@ void main() {
         vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
         vec3 spec = (NDF * G * F) / (4.0 * NoV * NdotL + 0.001);
         vec3 kD = (vec3(1.0) - F) * (1.0 - m);
-        directLo += (kD * albedo / PI + spec * specIntensity) * dirLight.color * atten * NdotL * (1.0 - shadow) * 100.0;
+        directLo += (kD * albedo / PI + spec * specIntensity) * dirLight.color * NdotL * (1.0 - shadow);
     }
     
     // 2. 點光源迴圈 (Point Lights)
@@ -184,8 +184,9 @@ void main() {
     vec3 specularIBL = pref * (F_ibl * brdf.x + brdf.y);
     
     vec3 ambient = (kD_ibl * diffuseIBL + specularIBL * specIntensity) * aoSample;
+    vec3 emissive = texture(gEmissiveMap, tc).rgb;
     
-    vec3 color = directLo + ambient; // Emissive is not here, drawn natively in unlit forward shader.
+    vec3 color = directLo + ambient + emissive; 
     
     color = color / (color + vec3(1.0)); 
     color = pow(color, vec3(1.0/2.2));   

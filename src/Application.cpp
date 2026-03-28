@@ -2,6 +2,7 @@
 #include <glm/gtc/type_ptr.hpp>
 #include <stb_image.h>
 #include <iostream>
+#include <algorithm>
 
 #ifdef _WIN32
 #define GLFW_EXPOSE_NATIVE_WIN32
@@ -24,6 +25,7 @@ Application::Application() {
     window = nullptr;
     scene = new Scene();
     renderer = nullptr;
+    physicsSystem = new PhysicsSystem();
     
     deltaTime = 0.0f;
     lastFrame = 0.0f;
@@ -45,6 +47,7 @@ Application::Application() {
 Application::~Application() {
     delete scene;
     delete renderer;
+    delete physicsSystem;
     ResourceManager::clear();
     delete helmetModel;
 }
@@ -138,9 +141,15 @@ void Application::setupResources() {
     ResourceManager::getShader("deferred_lighting")->setInt("prefilterMap", 6);
     ResourceManager::getShader("deferred_lighting")->setInt("brdfLUT", 7);
     ResourceManager::getShader("deferred_lighting")->setInt("pointShadowMap", 8);
+    ResourceManager::getShader("deferred_lighting")->setInt("gEmissiveMap", 9);
 }
 
 void Application::loadDefaultScene() {
+    scene->camera.Position = glm::vec3(0.0f, 2.0f, 5.0f);
+    scene->camera.Pitch = 0.0f;
+    scene->camera.Yaw = -90.0f;
+    scene->camera.ProcessMouseMovement(0, 0);
+
     Entity helmetEnt("Damaged Helmet", MODEL, glm::vec3(0, 1.0f, 0), glm::vec3(1));
     helmetEnt.model = helmetModel;
     helmetEnt.scale = glm::vec3(1.0f);
@@ -175,7 +184,7 @@ void Application::loadDefaultScene() {
     scene->addEntity(waterEntity);
 
     Entity sunEnt("Main Sun", CUBE, glm::vec3(5.0f, 10.0f, 5.0f), glm::vec3(1.0f, 0.95f, 0.8f));
-    sunEnt.isLight=true; sunEnt.lightColor=glm::vec3(1.0f, 0.95f, 0.8f); sunEnt.lightIntensity=2.0f; sunEnt.scale=glm::vec3(0.2f);
+    sunEnt.isLight=true; sunEnt.lightColor=glm::vec3(1.0f, 0.95f, 0.8f); sunEnt.lightIntensity=5.0f; sunEnt.scale=glm::vec3(0.2f);
     sunEnt.hasCollision = false;
     scene->addEntity(sunEnt);
     
@@ -187,6 +196,64 @@ void Application::loadDefaultScene() {
     Entity partEnt("Particle Source", PARTICLE, glm::vec3(0, 1.0f, 0), glm::vec3(124.0f/255.0f, 117.0f/255.0f, 112.0f/255.0f));
     partEnt.hasCollision = false;
     scene->addEntity(partEnt);
+}
+
+void Application::loadCollisionDemoScene() {
+    scene->camera.Position = glm::vec3(0.0f, 15.0f, 35.0f);
+    scene->camera.Pitch = -30.0f;
+    scene->camera.ProcessMouseMovement(0, 0); // update vectors
+    
+    // Light
+    Entity sunEnt("Main Sun", CUBE, glm::vec3(0.0f, 20.5f, 0.0f), glm::vec3(1.0f));
+    sunEnt.isLight = true; sunEnt.lightColor = glm::vec3(1.0f); sunEnt.lightIntensity = 5.0f; sunEnt.scale = glm::vec3(0.5f);
+    sunEnt.hasCollision = false;
+    scene->addEntity(sunEnt);
+
+    // Floor (21x21 blocks, centered at 0. X = -10 to 10, Z = -10 to 10)
+    for (int x = -10; x <= 10; ++x) {
+        for (int z = -10; z <= 10; ++z) {
+            bool isWhite = ((x + z) % 2 == 0);
+            glm::vec3 col = isWhite ? glm::vec3(0.9f) : glm::vec3(0.1f, 0.2f, 0.8f);
+            Entity block("FloorBlock", CUBE, glm::vec3(x, 0.0f, z), col);
+            block.scale = glm::vec3(1.0f, 0.1f, 1.0f); // 1m x 1m, 0.1m height
+            block.roughness = 0.8f; block.metallic = 0.1f; block.reflectivity = 0.05f;
+            block.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+            block.mass = 0.0f; // static
+            scene->addEntity(block);
+        }
+    }
+    
+    // Walls
+    Entity walls[4] = {
+        Entity("LeftWall", CUBE, glm::vec3(-11.0f, 10.5f, 0.0f), glm::vec3(0.2f, 0.8f, 0.2f)),
+        Entity("RightWall", CUBE, glm::vec3(11.0f, 10.5f, 0.0f), glm::vec3(0.8f, 0.8f, 0.2f)),
+        Entity("BackWall", CUBE, glm::vec3(0.0f, 10.5f, -11.0f), glm::vec3(0.2f, 0.8f, 0.2f)),
+        Entity("FrontWall", CUBE, glm::vec3(0.0f, 10.5f, 11.0f), glm::vec3(0.8f, 0.8f, 0.2f))
+    };
+    walls[0].scale = glm::vec3(1.0f, 21.0f, 23.0f);
+    walls[1].scale = glm::vec3(1.0f, 21.0f, 23.0f);
+    walls[2].scale = glm::vec3(21.0f, 21.0f, 1.0f);
+    walls[3].scale = glm::vec3(21.0f, 21.0f, 1.0f);
+    
+    for (int i=0; i<4; i++) {
+        walls[i].localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+        walls[i].mass = 0.0f;
+        walls[i].roughness = 0.5f;
+        scene->addEntity(walls[i]);
+    }
+
+    // Objects on floor (size > 3x3x3).
+    Entity obj1("BigBox1", CUBE, glm::vec3(-5.0f, 2.0f, -5.0f), glm::vec3(0.8f, 0.2f, 0.2f));
+    obj1.scale = glm::vec3(4.0f, 4.0f, 4.0f); obj1.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f)); obj1.mass = 0.0f; scene->addEntity(obj1);
+
+    Entity obj2("BigBox2", CUBE, glm::vec3(5.0f, 2.0f, -5.0f), glm::vec3(0.2f, 0.8f, 0.8f));
+    obj2.scale = glm::vec3(4.0f, 4.0f, 4.0f); obj2.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f)); obj2.mass = 0.0f; scene->addEntity(obj2);
+
+    Entity obj3("BigBox3", CUBE, glm::vec3(-5.0f, 2.0f, 5.0f), glm::vec3(0.8f, 0.2f, 0.8f));
+    obj3.scale = glm::vec3(4.0f, 4.0f, 4.0f); obj3.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f)); obj3.mass = 0.0f; scene->addEntity(obj3);
+
+    Entity obj4("BigBox4", CUBE, glm::vec3(5.0f, 2.0f, 5.0f), glm::vec3(0.8f, 0.5f, 0.2f));
+    obj4.scale = glm::vec3(4.0f, 4.0f, 4.0f); obj4.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f)); obj4.mass = 0.0f; scene->addEntity(obj4);
 }
 
 void Application::processInput() {
@@ -256,10 +323,48 @@ void Application::renderImGui() {
       } else { ImGui::Text("Select an entity"); }
       ImGui::End(); }
     { ImGui::Begin("Engine Controls"); 
+      if (ImGui::Button("Scene: Water Demo")) {
+          scene->entities.clear(); selectedEntityIndex = -1;
+          loadDefaultScene();
+          isCollisionDemo = false;
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Scene: Collision Demo")) {
+          scene->entities.clear(); selectedEntityIndex = -1;
+          loadCollisionDemoScene();
+          isCollisionDemo = true;
+      }
+      ImGui::Separator();
       ImGui::Checkbox("Normal Map", &useNormalMap); ImGui::Checkbox("Light 2 Moving", &light2Moving); ImGui::Separator();
       ImGui::Text("Advanced Global"); ImGui::SliderFloat("Tess Level", &tessLevel, 1, 64); ImGui::SliderFloat("Explosion", &explosionFactor, 0, 1);
       ImGui::Separator();
       ImGui::Text("Particle System"); ImGui::SliderFloat("P Count", &pCount, 1, 256); ImGui::SliderFloat("P Spread", &pSpread, 0.1f, 5.0f); ImGui::SliderFloat("P Size", &pSize, 0.01f, 0.5f);
+      ImGui::End(); }
+
+    if (isCollisionDemo) {
+      ImGui::Begin("Collision Controls"); 
+      ImGui::SliderInt("Sphere Count (k)", &kSpheresCount, 1, 300);
+      ImGui::Checkbox("Use Spatial Grid", &useSpatialGrid);
+      ImGui::Text("Collision Checks: %d", g_collisionChecks);
+      if (ImGui::Button("Shoot Spheres")) {
+          for(int i=0; i<kSpheresCount; i++) {
+              float rx = ((rand() % 2000) / 100.0f) - 10.0f;
+              float rz = ((rand() % 2000) / 100.0f) - 10.0f;
+              Entity s("DynamicSphere", SPHERE, glm::vec3(rx, 15.0f + (rand()%5), rz), glm::vec3(0.5f));
+              s.originalColor = glm::vec3(0.5f);
+              s.scale = glm::vec3(0.5f); // diameter=1m
+              s.radius = 0.5f;
+              s.mass = 1.0f;
+              s.roughness = 0.3f; s.metallic = 0.1f;
+              s.localBounds = AABB(glm::vec3(-1.0f), glm::vec3(1.0f));
+              s.velocity = glm::vec3(((rand()%200)/100.0f)-1.0f, -5.0f - (rand()%5), ((rand()%200)/100.0f)-1.0f);
+              scene->addEntity(s);
+          }
+      }
+      if (ImGui::Button("Clear Spheres")) {
+          auto newEnd = std::remove_if(scene->entities.begin(), scene->entities.end(), [](const Entity& e){ return e.name == "DynamicSphere"; });
+          scene->entities.erase(newEnd, scene->entities.end());
+      }
       ImGui::End(); }
 
     ImGui::Render(); ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
@@ -274,8 +379,12 @@ void Application::run() {
         
         processInput();
         scene->update(deltaTime, cur, light2Moving);
+        
+        if (isCollisionDemo) {
+            physicsSystem->update(scene, deltaTime, useSpatialGrid);
+        }
 
-        renderer->renderScene(scene, useNormalMap, tessLevel, explosionFactor, pSpread, pSize, pCount);
+        renderer->renderScene(scene, useNormalMap, tessLevel, explosionFactor, pSpread, pSize, pCount, isCollisionDemo);
         
         renderImGui();
         

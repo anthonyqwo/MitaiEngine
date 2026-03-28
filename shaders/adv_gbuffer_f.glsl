@@ -3,6 +3,7 @@ layout (location = 0) out vec4 gPosition;
 layout (location = 1) out vec4 gNormal;
 layout (location = 2) out vec4 gAlbedo;
 layout (location = 3) out vec4 gPBR;
+layout (location = 4) out vec4 gEmissive;
 
 // TES_OUT
 in vec4 FragPos;
@@ -30,10 +31,6 @@ void main() {
     vec3 Tangent = vec3(1.0, 0.0, 0.0);
     float m = texture(metallicMap, TexCoords).b * metallic;
     float r = texture(roughnessMap, TexCoords).g * roughness;
-    vec3 mSample = texture(metallicMap, TexCoords).rgb;
-    if (mSample.b < 0.001 && mSample.r > 0.001) m = mSample.r * metallic;
-    vec3 rSample = texture(roughnessMap, TexCoords).rgb;
-    if (rSample.g < 0.001 && rSample.r > 0.001) r = rSample.r * roughness;
     float aoSample = texture(aoMap, TexCoords).r * material.ambientStrength;
     r = clamp(r, 0.04, 1.0);
 
@@ -56,4 +53,5 @@ void main() {
     gNormal = vec4(N, reflectivity);
     gAlbedo = vec4(baseColor, 1.0);
     gPBR = vec4(m, r, aoSample, 0.0);
+    gEmissive = vec4(0.0, 0.0, 0.0, 1.0);
 }

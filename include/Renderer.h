@@ -13,7 +13,7 @@ public:
     Renderer(unsigned int scrWidth, unsigned int scrHeight);
     ~Renderer();
     
-    void renderScene(Scene* scene, bool useNormalMap, float tessLevel, float explosionFactor, float pSpread, float pSize, float pCount);
+    void renderScene(Scene* scene, bool useNormalMap, float tessLevel, float explosionFactor, float pSpread, float pSize, float pCount, bool multiView = false);
     
 private:
     unsigned int SCR_WIDTH, SCR_HEIGHT;
@@ -21,7 +21,7 @@ private:
 
     // G-Buffer
     unsigned int gBuffer;
-    unsigned int gPosition, gNormal, gAlbedoSpec, gPBR;
+    unsigned int gPosition, gNormal, gAlbedoSpec, gPBR, gEmissive;
     unsigned int rboDepth;
     
     // Shadows

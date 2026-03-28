@@ -9,6 +9,7 @@
 #include "Scene.h"
 #include "Model.h"
 #include "Renderer.h"
+#include "PhysicsSystem.h"
 
 class Application {
 public:
@@ -17,6 +18,7 @@ public:
     
     bool init();
     void loadDefaultScene();
+    void loadCollisionDemoScene();
     void run();
 
 private:
@@ -27,6 +29,7 @@ private:
     GLFWwindow* window;
     Scene* scene;
     Renderer* renderer;
+    PhysicsSystem* physicsSystem;
     
     unsigned int SCR_WIDTH = 1920;
     unsigned int SCR_HEIGHT = 1080;
@@ -43,6 +46,12 @@ private:
     float explosionFactor;
     float pSpread, pSize, pCount;
     int selectedEntityIndex;
+    
+    bool isCollisionDemo = true;
+    
+    // Collision Physics Simulation Config
+    bool useSpatialGrid = true;
+    int kSpheresCount = 50;
     
     Model* helmetModel;
 

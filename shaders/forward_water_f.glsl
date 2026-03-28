@@ -51,7 +51,7 @@ float ShadowCalculation(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir) {
     projCoords = projCoords * 0.5 + 0.5;
     if(projCoords.z > 1.0) return 0.0;
     float currentDepth = projCoords.z;
-    float bias = max(0.02 * (1.0 - dot(normal, lightDir)), 0.002);
+    float bias = max(0.005 * (1.0 - dot(normal, lightDir)), 0.001);
     float shadow = 0.0;
     vec2 texelSize = 1.0 / textureSize(shadowMap, 0);
     for(int x = -1; x <= 1; ++x) {
@@ -131,12 +131,6 @@ void main() {
     // GLTF Packing: R=Occlusion, G=Roughness, B=Metallic
     float m = texture(metallicMap, fs_in.TexCoords).b * metallic;
     float r = texture(roughnessMap, fs_in.TexCoords).g * roughness;
-    
-    // 向下相容
-    vec3 mSample = texture(metallicMap, fs_in.TexCoords).rgb;
-    if (mSample.b < 0.001 && mSample.r > 0.001) m = mSample.r * metallic;
-    vec3 rSample = texture(roughnessMap, fs_in.TexCoords).rgb;
-    if (rSample.g < 0.001 && rSample.r > 0.001) r = rSample.r * roughness;
 
     float aoSample = texture(aoMap, fs_in.TexCoords).r * material.ambientStrength;
     vec3 emissive = pow(texture(emissiveMap, fs_in.TexCoords).rgb, vec3(2.2)) * 2.0; // 自發光增益
@@ -188,11 +182,9 @@ void main() {
 
     // 4. 直接光照
     vec3 directLo = vec3(0.0);
-    // Light 1 (Sun)
+    // Light 1 (Sun) - Directional Light
     if(length(light1.color) > 0.01) {
-        vec3 L = normalize(light1.position - fs_in.FragPos); vec3 H = normalize(V + L);
-        float dist = length(light1.position - fs_in.FragPos);
-        float atten = 1.0 / (dist * dist + 0.001); 
+        vec3 L = normalize(light1.position); vec3 H = normalize(V + L);
         float shadow = ShadowCalculation(fs_in.FragPosLightSpace, N, L);
         float NdotL = max(dot(N, L), 0.0);
         float NDF = DistributionGGX(N, H, r); 
@@ -200,7 +192,7 @@ void main() {
         vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
         vec3 spec = (NDF * G * F) / (4.0 * NoV * NdotL + 0.001);
         vec3 kD = (vec3(1.0) - F) * (1.0 - m);
-        directLo += (kD * albedo / PI + spec * specIntensity) * light1.color * atten * NdotL * (1.0 - shadow) * 100.0;
+        directLo += (kD * albedo / PI + spec * specIntensity) * light1.color * NdotL * (1.0 - shadow);
     }
     // Light 2 (Point)
     if(length(light2.color) > 0.01) {

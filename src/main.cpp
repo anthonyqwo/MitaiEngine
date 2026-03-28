@@ -4,7 +4,7 @@
 int main() {
     Application app;
     if (app.init()) {
-        app.loadDefaultScene();
+        app.loadCollisionDemoScene();
         app.run();
     } else {
         std::cerr << "Failed to initialize game engine application." << std::endl;

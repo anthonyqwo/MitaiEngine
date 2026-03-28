@@ -123,6 +123,7 @@ private:
 
         // 1. Albedo: albedoMap
         std::vector<Texture> albedoMaps = loadMaterialTextures(material, aiTextureType_DIFFUSE, "albedoMap", scene);
+        if(albedoMaps.empty()) albedoMaps = loadMaterialTextures(material, aiTextureType_BASE_COLOR, "albedoMap", scene);
         textures.insert(textures.end(), albedoMaps.begin(), albedoMaps.end());
         
         // 2. Normal: normalMap
@@ -133,16 +134,20 @@ private:
         
         // 3. Metallic: metallicMap
         std::vector<Texture> metallicMaps = loadMaterialTextures(material, aiTextureType_METALNESS, "metallicMap", scene);
+        if(metallicMaps.empty()) metallicMaps = loadMaterialTextures(material, aiTextureType_UNKNOWN, "metallicMap", scene);
         textures.insert(textures.end(), metallicMaps.begin(), metallicMaps.end());
         
         // 4. Roughness: roughnessMap
         std::vector<Texture> roughnessMaps = loadMaterialTextures(material, aiTextureType_DIFFUSE_ROUGHNESS, "roughnessMap", scene);
         if(roughnessMaps.empty()) roughnessMaps = loadMaterialTextures(material, aiTextureType_SHININESS, "roughnessMap", scene);
+        if(roughnessMaps.empty()) roughnessMaps = loadMaterialTextures(material, aiTextureType_UNKNOWN, "roughnessMap", scene);
         textures.insert(textures.end(), roughnessMaps.begin(), roughnessMaps.end());
         
         // 5. Ambient Occlusion: aoMap
         std::vector<Texture> aoMaps = loadMaterialTextures(material, aiTextureType_AMBIENT_OCCLUSION, "aoMap", scene);
         if(aoMaps.empty()) aoMaps = loadMaterialTextures(material, aiTextureType_AMBIENT, "aoMap", scene);
+        if(aoMaps.empty()) aoMaps = loadMaterialTextures(material, aiTextureType_LIGHTMAP, "aoMap", scene);
+        if(aoMaps.empty()) aoMaps = loadMaterialTextures(material, aiTextureType_UNKNOWN, "aoMap", scene);
         textures.insert(textures.end(), aoMaps.begin(), aoMaps.end());
 
         // 6. Emissive: emissiveMap
