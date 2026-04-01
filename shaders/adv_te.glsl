@@ -4,7 +4,7 @@ layout (triangles, equal_spacing, ccw) in;
 in vec3 tcNormal[];
 
 out vec3 teNormal;
-out vec3 teFragPos;
+out vec4 teFragPos;
 out vec4 teFragPosLightSpace;
 
 uniform mat4 model;
@@ -20,7 +20,7 @@ void main() {
     
     // 世界空間計算
     vec4 worldPos = model * vec4(pos, 1.0);
-    teFragPos = worldPos.xyz;
+    teFragPos = worldPos;
     teNormal = mat3(transpose(inverse(model))) * pos;
     teFragPosLightSpace = lightSpaceMatrix * worldPos;
     

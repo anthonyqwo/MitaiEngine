@@ -46,7 +46,10 @@ private:
     void renderLightingPass(Scene* scene);
     void renderForwardPass(Scene* scene, bool useNormalMap, float pSpread, float pSize, float pCount);
     
-    void renderEntitiesToGBuffer(Shader* shader, const std::vector<Entity>& entities, bool useNormalMap);
+    void renderEntitiesToGBuffer(Shader* shader, const std::vector<Entity>& entities, bool useNormalMap, 
+                                 glm::mat4 proj = glm::mat4(1.0f), glm::mat4 view = glm::mat4(1.0f),
+                                 glm::vec3 lightPos = glm::vec3(0.0f), float far_plane = 0.0f, 
+                                 const std::vector<glm::mat4>* shadowMatrices = nullptr);
     void renderParticles(Shader* shader, const std::vector<Entity>& entities, float time, float spread, float size, float particleCount);
     
     void renderQuad();

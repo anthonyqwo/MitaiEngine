@@ -1,8 +1,8 @@
 #include "Renderer.h"
 #include <glm/gtc/matrix_transform.hpp>
-#include <iostream>
 #include <GLFW/glfw3.h>
 #include "Geometry.h"
+#define GLM_ENABLE_EXPERIMENTAL
 #include "Model.h"
 
 Renderer::Renderer(unsigned int scrWidth, unsigned int scrHeight) 
@@ -138,21 +138,21 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
     glViewport(0,0,SHADOW_WIDTH,SHADOW_HEIGHT); glBindFramebuffer(GL_FRAMEBUFFER, depthFBO); glClear(GL_DEPTH_BUFFER_BIT);
     glEnable(GL_CULL_FACE); glCullFace(GL_FRONT);
     shadowShader->use(); shadowShader->setMat4("lightSpaceMatrix", lSpace);
-    renderEntitiesToGBuffer(shadowShader, scene->entities, false);
+    renderEntitiesToGBuffer(shadowShader, scene->entities, false, lProj, lView);
     advShadowShader->use(); advShadowShader->setMat4("lightSpaceMatrix", lSpace);
     advShadowShader->setFloat("tessLevel", tessLevel); advShadowShader->setFloat("explosionFactor", explosionFactor);
     advShadowShader->setBool("isShadowPass", true);
-    renderEntitiesToGBuffer(advShadowShader, scene->entities, false);
+    renderEntitiesToGBuffer(advShadowShader, scene->entities, false, lProj, lView);
     glCullFace(GL_BACK); glDisable(GL_CULL_FACE); glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     glViewport(0,0,1024,1024); glBindFramebuffer(GL_FRAMEBUFFER, pointShadowFBO); glClear(GL_DEPTH_BUFFER_BIT);
     pointShadowShader->use(); for(int i=0;i<6;i++) pointShadowShader->setMat4("shadowMatrices["+std::to_string(i)+"]", pMats[i]);
     pointShadowShader->setFloat("far_plane", far_p); pointShadowShader->setVec3("lightPos", pP);
-    renderEntitiesToGBuffer(pointShadowShader, scene->entities, false);
+    renderEntitiesToGBuffer(pointShadowShader, scene->entities, false, pProj, glm::mat4(1.0f), pP, far_p, &pMats);
     advPointShadowShader->use(); for(int i=0;i<6;i++) advPointShadowShader->setMat4("shadowMatrices["+std::to_string(i)+"]", pMats[i]);
     advPointShadowShader->setFloat("far_plane", far_p); advPointShadowShader->setVec3("lightPos", pP);
     advPointShadowShader->setFloat("tessLevel", tessLevel); advPointShadowShader->setFloat("explosionFactor", explosionFactor);
-    renderEntitiesToGBuffer(advPointShadowShader, scene->entities, false);
+    renderEntitiesToGBuffer(advPointShadowShader, scene->entities, false, pProj, glm::mat4(1.0f), pP, far_p, &pMats);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
     struct VP { int x, y, w, h; glm::mat4 view; glm::mat4 proj; glm::vec3 pos; };
@@ -184,11 +184,11 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
         glViewport(vp.x, vp.y, vp.w, vp.h);
         gbufferShader->use();
         gbufferShader->setMat4("projection", vp.proj); gbufferShader->setMat4("view", vp.view);
-        renderEntitiesToGBuffer(gbufferShader, scene->entities, useNormalMap);
+        renderEntitiesToGBuffer(gbufferShader, scene->entities, useNormalMap, vp.proj, vp.view);
         advGbufferShader->use();
         advGbufferShader->setMat4("projection", vp.proj); advGbufferShader->setMat4("view", vp.view);
         advGbufferShader->setFloat("tessLevel", tessLevel); advGbufferShader->setFloat("explosionFactor", explosionFactor);
-        renderEntitiesToGBuffer(advGbufferShader, scene->entities, useNormalMap);
+        renderEntitiesToGBuffer(advGbufferShader, scene->entities, useNormalMap, vp.proj, vp.view);
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
 
@@ -321,7 +321,7 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
     }
 }
 
-void Renderer::renderEntitiesToGBuffer(Shader* shader, const std::vector<Entity>& entities, bool useNormalMap) {
+void Renderer::renderEntitiesToGBuffer(Shader* shader, const std::vector<Entity>& entities, bool useNormalMap, glm::mat4 proj, glm::mat4 view, glm::vec3 lightPos, float far_plane, const std::vector<glm::mat4>* shadowMatrices) {
     shader->setBool("useNormalMap", useNormalMap);
     
     unsigned int whiteTex = ResourceManager::getTexture("whiteTex");
@@ -334,17 +334,41 @@ void Renderer::renderEntitiesToGBuffer(Shader* shader, const std::vector<Entity>
         if (shader->hasTessellation) { if (e.type != ADV_SPHERE) continue; }
         else { if (e.type == ADV_SPHERE || e.name == "Particle Source") continue; }
         
-        shader->setMat4("model", e.getModelMatrix());
-        shader->setFloat("roughness", e.roughness);
-        shader->setFloat("metallic", e.metallic);
-        shader->setFloat("material.ambientStrength", e.ambient);
-        shader->setVec3("objectColor", e.color);
-        shader->setFloat("reflectivity", e.reflectivity);
+        Shader* currentShader = shader;
+        bool isSkeletal = (e.type == MODEL && e.model && !e.finalBoneMatrices.empty());
+        
+        if (isSkeletal) {
+            std::string shaderName = "skinning";
+            std::string currentPass = shader->getName();
+            if (currentPass == "shadow" || currentPass == "advShadow") shaderName = "skinning_shadow";
+            else if (currentPass == "pointShadow" || currentPass == "advPointShadow") shaderName = "skinning_pointShadow";
+            
+            currentShader = ResourceManager::getShader(shaderName);
+            currentShader->use();
+            currentShader->setMat4("projection", proj);
+            currentShader->setMat4("view", view);
+            if (shaderName == "skinning_shadow") currentShader->setMat4("lightSpaceMatrix", proj * view);
+            if (shaderName == "skinning_pointShadow") {
+                currentShader->setVec3("lightPos", lightPos);
+                currentShader->setFloat("far_plane", far_plane);
+                if (shadowMatrices) {
+                    for(unsigned int i=0; i < shadowMatrices->size() && i < 6; i++) {
+                        currentShader->setMat4("shadowMatrices[" + std::to_string(i) + "]", (*shadowMatrices)[i]);
+                    }
+                }
+            }
+        }
+        
+        currentShader->setMat4("model", e.getModelMatrix());
+        currentShader->setFloat("roughness", e.roughness);
+        currentShader->setFloat("metallic", e.metallic);
+        currentShader->setFloat("material.ambientStrength", e.ambient);
+        currentShader->setVec3("objectColor", e.color);
+        currentShader->setFloat("reflectivity", e.reflectivity);
 
-        // Remove dynamic texture logic string entirely if it's unused or simply translate
         glm::mat4 texMat(1.0f);
         if (e.dynamicTexture) texMat = glm::translate(texMat, glm::vec3((float)glfwGetTime() * e.texSpeed, 0.0f, 0.0f));
-        shader->setMat4("textureMatrix", texMat);
+        currentShader->setMat4("textureMatrix", texMat);
 
         glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, whiteTex);      
         glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, flatNormalTex); 
@@ -375,8 +399,32 @@ void Renderer::renderEntitiesToGBuffer(Shader* shader, const std::vector<Entity>
             glPatchParameteri(GL_PATCH_VERTICES, 3);
             glDrawArrays(GL_PATCHES, 0, icoCount);
         } else if (e.type == MODEL && e.model) {
-            e.model->Draw(*shader);
+            glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); // albedo
+            glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("flatNormalTex")); // normal
+            glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("blackTex")); // metallic
+            glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); // roughness
+            glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); // ao
+            glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("blackTex")); // emissive
+
+            if (isSkeletal) {
+                static unsigned int boneSSBO = 0;
+                if (boneSSBO == 0) {
+                    glGenBuffers(1, &boneSSBO);
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, boneSSBO);
+                    glBufferData(GL_SHADER_STORAGE_BUFFER, 2000 * sizeof(glm::mat4), NULL, GL_DYNAMIC_DRAW);
+                    glBindBufferBase(GL_SHADER_STORAGE_BUFFER, 0, boneSSBO);
+                }
+                
+                unsigned int numBonesToUpload = std::min((unsigned int)e.finalBoneMatrices.size(), 2000u);
+                if (numBonesToUpload > 0) {
+                    glBindBuffer(GL_SHADER_STORAGE_BUFFER, boneSSBO);
+                    glBufferSubData(GL_SHADER_STORAGE_BUFFER, 0, numBonesToUpload * sizeof(glm::mat4), e.finalBoneMatrices.data());
+                }
+            }
+            e.model->Draw(*currentShader);
         }
+        
+        if (isSkeletal) shader->use(); 
     }
 }
 

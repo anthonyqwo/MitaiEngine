@@ -6,7 +6,7 @@ std::map<std::string, Shader*>    ResourceManager::Shaders;
 std::map<std::string, unsigned int> ResourceManager::Textures;
 
 Shader* ResourceManager::loadShader(const char *vShaderFile, const char *fShaderFile, const char *gShaderFile, const char *tcShaderFile, const char *teShaderFile, std::string name) {
-    Shaders[name] = new Shader(vShaderFile, fShaderFile, gShaderFile, tcShaderFile, teShaderFile);
+    Shaders[name] = new Shader(vShaderFile, fShaderFile, gShaderFile, tcShaderFile, teShaderFile, name);
     return Shaders[name];
 }
 

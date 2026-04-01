@@ -1,4 +1,5 @@
 #include "Scene.h"
+#include "Model.h"
 #include <iostream>
 
 Scene::Scene() : camera(glm::vec3(0.0f, 2.0f, 8.0f)) {
@@ -16,8 +17,14 @@ void Scene::update(float deltaTime, float currentTime, bool light2Moving) {
     for (auto& e : entities) {
         if (e.name == "Dynamic Cube") e.rotation.y += 30 * deltaTime;
         if (e.name == "Advanced Sphere") e.rotation.y += 20 * deltaTime;
-        // 注意原本 main.cpp 中是 e.name == "Icosahedron"，但插入時名為 "Advanced Sphere"
-        // 我們改為比對 Advanced Sphere 來兼容 Imgui 加的邏輯或者是實體本身
+        
+        if (e.type == MODEL && e.model) {
+            if (!e.model->GetBoneInfoMap().empty()) {
+                e.finalBoneMatrices.resize(e.model->GetBoneCount());
+                e.model->UpdateBoneMatrices(e.model->GetScene()->mRootNode, glm::mat4(1.0f), e.finalBoneMatrices);
+            }
+        }
+
         if (light2Moving && e.name == "Point Light") {
             e.position = glm::vec3(sin(currentTime)*3, 2, cos(currentTime)*3);
         }

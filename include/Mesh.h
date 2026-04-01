@@ -15,6 +15,15 @@ struct Vertex {
     glm::vec2 TexCoords;
     glm::vec3 Tangent;
     glm::vec3 Bitangent;
+    int BoneIDs[4];
+    float Weights[4];
+
+    Vertex() {
+        for (int i = 0; i < 4; i++) {
+            BoneIDs[i] = -1;
+            Weights[i] = 0.0f;
+        }
+    }
 };
 
 struct Texture {
@@ -101,6 +110,12 @@ private:
         glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Tangent));
         glEnableVertexAttribArray(4);	
         glVertexAttribPointer(4, 3, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Bitangent));
+        
+        // Bone data
+        glEnableVertexAttribArray(5);
+        glVertexAttribIPointer(5, 4, GL_INT, sizeof(Vertex), (void*)offsetof(Vertex, BoneIDs));
+        glEnableVertexAttribArray(6);
+        glVertexAttribPointer(6, 4, GL_FLOAT, GL_FALSE, sizeof(Vertex), (void*)offsetof(Vertex, Weights));
 
         glBindVertexArray(0);
     }

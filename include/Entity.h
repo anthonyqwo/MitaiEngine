@@ -20,8 +20,9 @@ struct Entity {
     glm::vec3 originalColor;
     bool visible = true;
     
-    // 模型資源
+    // 模型資源與動畫
     Model* model = nullptr;
+    std::vector<glm::mat4> finalBoneMatrices;
     
     // PBR 材質屬性
     float roughness = 0.5f;

@@ -54,6 +54,7 @@ private:
     int kSpheresCount = 50;
     
     Model* helmetModel;
+    Model* pmxModel;
 
     static Application* s_instance;
     static void framebuffer_size_callback(GLFWwindow* window, int width, int height);

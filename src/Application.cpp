@@ -50,6 +50,7 @@ Application::~Application() {
     delete physicsSystem;
     ResourceManager::clear();
     delete helmetModel;
+    delete pmxModel;
 }
 
 bool Application::init() {
@@ -80,6 +81,9 @@ bool Application::init() {
 
 void Application::setupResources() {
     ResourceManager::loadShader("shaders/vertex.glsl", "shaders/gbuffer_f.glsl", nullptr, nullptr, nullptr, "gbuffer");
+    ResourceManager::loadShader("shaders/skinning_v.glsl", "shaders/gbuffer_f.glsl", nullptr, nullptr, nullptr, "skinning");
+    ResourceManager::loadShader("shaders/skinning_v.glsl", "shaders/shadow_f.glsl", nullptr, nullptr, nullptr, "skinning_shadow");
+    ResourceManager::loadShader("shaders/skinning_v.glsl", "shaders/point_shadow_f.glsl", "shaders/point_shadow_g.glsl", nullptr, nullptr, "skinning_pointShadow");
     ResourceManager::loadShader("shaders/adv_v.glsl", "shaders/adv_gbuffer_f.glsl", "shaders/adv_g.glsl", "shaders/adv_tc.glsl", "shaders/adv_te.glsl", "advGbuffer");
     ResourceManager::loadShader("shaders/deferred_lighting_v.glsl", "shaders/deferred_lighting_f.glsl", nullptr, nullptr, nullptr, "deferred_lighting");
     
@@ -127,6 +131,7 @@ void Application::setupResources() {
     ResourceManager::Textures["brdfLUT"] = scene->brdfLUT;
 
     helmetModel = new Model("assets/models/DamagedHelmet.glb");
+    pmxModel = new Model("assets/models/butterfly.pmx");
     
     ResourceManager::getShader("skybox")->use(); 
     ResourceManager::getShader("skybox")->setInt("skybox", 0);
@@ -145,12 +150,19 @@ void Application::setupResources() {
 }
 
 void Application::loadDefaultScene() {
-    scene->camera.Position = glm::vec3(0.0f, 2.0f, 5.0f);
+    scene->camera.Position = glm::vec3(0.0f, 2.0f, 10.0f);
     scene->camera.Pitch = 0.0f;
     scene->camera.Yaw = -90.0f;
     scene->camera.ProcessMouseMovement(0, 0);
 
-    Entity helmetEnt("Damaged Helmet", MODEL, glm::vec3(0, 1.0f, 0), glm::vec3(1));
+    Entity butterflyEnt("Butterfly PMX", MODEL, glm::vec3(0, 0, 0), glm::vec3(1));
+    butterflyEnt.model = pmxModel;
+    butterflyEnt.scale = glm::vec3(0.12f);
+    butterflyEnt.metallic = 0.5f; butterflyEnt.roughness = 0.5f; butterflyEnt.ambient = 1.0f; butterflyEnt.reflectivity = 0.3f;
+    butterflyEnt.localBounds = pmxModel->localBounds;
+    scene->addEntity(butterflyEnt);
+
+    Entity helmetEnt("Damaged Helmet", MODEL, glm::vec3(3.0f, 1.0f, 0), glm::vec3(1));
     helmetEnt.model = helmetModel;
     helmetEnt.scale = glm::vec3(1.0f);
     helmetEnt.metallic = 1.0f; helmetEnt.roughness = 1.0f; helmetEnt.ambient = 1.0f; helmetEnt.reflectivity = 1.0f;

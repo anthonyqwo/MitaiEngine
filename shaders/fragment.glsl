@@ -2,7 +2,7 @@
 out vec4 FragColor;
 
 in VS_OUT {
-    vec3 FragPos;
+    vec4 FragPos;
     vec2 TexCoords;
     vec3 Normal;
     vec3 Tangent;
@@ -169,7 +169,7 @@ void main() {
         N = N_geom;
     }
 
-    vec3 V = normalize(viewPos - fs_in.FragPos);
+    vec3 V = normalize(viewPos - fs_in.FragPos.xyz);
     vec3 reflectN = isWater ? normalize(mix(N, N_geom, 0.3)) : N;
     vec3 R = reflect(-V, reflectN);
     float NoV = max(dot(N, V), 0.0);
@@ -190,8 +190,8 @@ void main() {
     vec3 directLo = vec3(0.0);
     // Light 1 (Sun)
     if(length(light1.color) > 0.01) {
-        vec3 L = normalize(light1.position - fs_in.FragPos); vec3 H = normalize(V + L);
-        float dist = length(light1.position - fs_in.FragPos);
+        vec3 L = normalize(light1.position - fs_in.FragPos.xyz); vec3 H = normalize(V + L);
+        float dist = length(light1.position - fs_in.FragPos.xyz);
         float atten = 1.0 / (dist * dist + 0.001); 
         float shadow = ShadowCalculation(fs_in.FragPosLightSpace, N, L);
         float NdotL = max(dot(N, L), 0.0);
@@ -204,10 +204,10 @@ void main() {
     }
     // Light 2 (Point)
     if(length(light2.color) > 0.01) {
-        vec3 L = normalize(light2.position - fs_in.FragPos); vec3 H = normalize(V + L);
-        float dist = length(light2.position - fs_in.FragPos);
+        vec3 L = normalize(light2.position - fs_in.FragPos.xyz); vec3 H = normalize(V + L);
+        float dist = length(light2.position - fs_in.FragPos.xyz);
         float atten = 1.0 / (dist * dist + 0.001);
-        float shadow = PointShadowCalculation(fs_in.FragPos, N);
+        float shadow = PointShadowCalculation(fs_in.FragPos.xyz, N);
         float NdotL = max(dot(N, L), 0.0);
         float NDF = DistributionGGX(N, H, r); 
         float G = GeometrySmith(N, V, L, r); 

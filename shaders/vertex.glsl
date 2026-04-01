@@ -6,7 +6,7 @@ layout (location = 3) in vec3 aTangent;
 layout (location = 4) in vec3 aBitangent;
 
 out VS_OUT {
-    vec3 FragPos;
+    vec4 FragPos;
     vec2 TexCoords;
     vec3 Normal;
     vec3 Tangent;
@@ -21,7 +21,7 @@ uniform mat4 lightSpaceMatrix;
 uniform mat4 textureMatrix;
 
 void main() {
-    vs_out.FragPos = vec3(model * vec4(aPos, 1.0));
+    vs_out.FragPos = model * vec4(aPos, 1.0);
     vs_out.TexCoords = vec2(textureMatrix * vec4(aTexCoords, 0.0, 1.0));
     
     mat3 normalMatrix = transpose(inverse(mat3(model)));
@@ -40,6 +40,6 @@ void main() {
     vs_out.Tangent = T;
     vs_out.Bitangent = B;
     
-    vs_out.FragPosLightSpace = lightSpaceMatrix * vec4(vs_out.FragPos, 1.0);
-    gl_Position = projection * view * vec4(vs_out.FragPos, 1.0);
+    vs_out.FragPosLightSpace = lightSpaceMatrix * vec4(vs_out.FragPos.xyz, 1.0);
+    gl_Position = projection * view * vec4(vs_out.FragPos.xyz, 1.0);
 }

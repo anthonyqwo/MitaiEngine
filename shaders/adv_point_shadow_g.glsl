@@ -3,7 +3,7 @@ layout (triangles) in;
 layout (triangle_strip, max_vertices = 18) out;
 
 in vec3 teNormal[];
-in vec3 teFragPos[];
+in vec4 teFragPos[];
 
 out vec4 FragPos; // 點陰影計算所需的輸出
 
@@ -19,7 +19,7 @@ void main() {
     for(int face = 0; face < 6; ++face) {
         gl_Layer = face; // 設定渲染到 Cubemap 的第幾面
         for(int i = 0; i < 3; ++i) {
-            vec3 worldPos = teFragPos[i] + offset;
+            vec3 worldPos = teFragPos[i].xyz + offset;
             FragPos = vec4(worldPos, 1.0);
             gl_Position = shadowMatrices[face] * FragPos;
             EmitVertex();

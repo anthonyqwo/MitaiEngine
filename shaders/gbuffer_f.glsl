@@ -6,12 +6,12 @@ layout (location = 3) out vec4 gPBR;
 layout (location = 4) out vec4 gEmissive;
 
 in VS_OUT {
-    vec3 FragPos;
+    vec4 FragPos;
     vec2 TexCoords;
     vec3 Normal;
     vec3 Tangent;
     vec3 Bitangent;
-    vec4 FragPosLightSpace; // kept for compatibility with VS, not used here
+    vec4 FragPosLightSpace;
 } fs_in;
 
 layout(binding = 10) uniform sampler2D albedoMap;
@@ -54,7 +54,7 @@ void main() {
     vec3 texAlbedo = texture(albedoMap, fs_in.TexCoords).rgb;
     vec3 baseColor = pow(texAlbedo, vec3(2.2)) * objectColor;
     
-    gPosition = vec4(fs_in.FragPos, 1.0);
+    gPosition = vec4(fs_in.FragPos.xyz, 1.0);
     gNormal = vec4(N, reflectivity);
     gAlbedo = vec4(baseColor, 1.0);
     gPBR = vec4(m, r, aoSample, 0.0);

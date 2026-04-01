@@ -16,7 +16,7 @@ public:
     bool hasTessellation;
 
     // constructor generates the shader on the fly
-    Shader(const char* vertexPath, const char* fragmentPath, const char* geometryPath = nullptr, const char* tessControlPath = nullptr, const char* tessEvalPath = nullptr) {
+    Shader(const char* vertexPath, const char* fragmentPath, const char* geometryPath = nullptr, const char* tessControlPath = nullptr, const char* tessEvalPath = nullptr, std::string name = "") : m_name(name) {
         hasTessellation = (tessControlPath != nullptr || tessEvalPath != nullptr);
         // 1. retrieve the vertex/fragment source code from filePath
         std::string vertexCode, fragmentCode, geometryCode, tessControlCode, tessEvalCode;
@@ -83,6 +83,8 @@ public:
         glUseProgram(ID);
     }
 
+    std::string getName() const { return m_name; }
+
     // utility uniform functions
     void setBool(const std::string& name, bool value) const {
         glUniform1i(glGetUniformLocation(ID, name.c_str()), (int)value);
@@ -101,6 +103,7 @@ public:
     }
 
 private:
+    std::string m_name;
     // utility function for checking shader compilation/linking errors.
     void checkCompileErrors(unsigned int shader, std::string type) {
         int success;

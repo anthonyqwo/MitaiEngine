@@ -3,12 +3,12 @@ layout (triangles) in;
 layout (triangle_strip, max_vertices = 3) out;
 
 in vec3 teNormal[];
-in vec3 teFragPos[];
+in vec4 teFragPos[];
 in vec4 teFragPosLightSpace[];
 
-out vec3 Normal;
-out vec4 FragPos;
-out vec4 FragPosLightSpace;
+layout (location = 0) out vec4 FragPos;
+layout (location = 1) out vec3 Normal;
+layout (location = 2) out vec4 FragPosLightSpace;
 
 uniform float explosionFactor;
 uniform mat4 projection;
@@ -23,7 +23,7 @@ void main() {
     vec3 offset = explodeDir * explosionFactor * magnitude;
 
     for(int i = 0; i < 3; i++) {
-        vec3 worldPos = teFragPos[i] + offset;
+        vec3 worldPos = teFragPos[i].xyz + offset;
         FragPos = vec4(worldPos, 1.0);
         Normal = teNormal[i];
         

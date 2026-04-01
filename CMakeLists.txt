@@ -39,6 +39,7 @@ set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
 # 僅啟用需要的格式
 set(ASSIMP_BUILD_GLTF_IMPORTER ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_OBJ_IMPORTER ON CACHE BOOL "" FORCE)
+set(ASSIMP_BUILD_MMD_IMPORTER ON CACHE BOOL "" FORCE)
 
 FetchContent_Declare(assimp GIT_REPOSITORY https://github.com/assimp/assimp.git GIT_TAG v5.2.5)
 FetchContent_MakeAvailable(assimp)
@@ -46,6 +47,8 @@ FetchContent_MakeAvailable(assimp)
 # --- Project ---
 file(GLOB_RECURSE SOURCES "src/*.cpp" "src/*.c")
 add_executable(${PROJECT_NAME} ${SOURCES} ${IMGUI_SOURCES})
+
+target_compile_definitions(${PROJECT_NAME} PRIVATE GLM_ENABLE_EXPERIMENTAL)
 
 target_include_directories(${PROJECT_NAME} PRIVATE 
     include ${IMGUI_DIR} ${IMGUI_DIR}/backends

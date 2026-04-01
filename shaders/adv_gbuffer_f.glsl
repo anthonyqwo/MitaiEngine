@@ -6,9 +6,9 @@ layout (location = 3) out vec4 gPBR;
 layout (location = 4) out vec4 gEmissive;
 
 // TES_OUT
-in vec4 FragPos;
-in vec3 Normal;
-in vec4 FragPosLightSpace;
+layout (location = 0) in vec4 FragPos;
+layout (location = 1) in vec3 Normal;
+layout (location = 2) in vec4 FragPosLightSpace;
 
 layout(binding = 10) uniform sampler2D albedoMap;
 layout(binding = 11) uniform sampler2D normalMap;
