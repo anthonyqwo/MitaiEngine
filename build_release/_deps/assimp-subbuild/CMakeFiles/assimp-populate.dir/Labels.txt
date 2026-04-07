@@ -1,0 +1,14 @@
+# Target labels
+ assimp-populate
+# Source files and their labels
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/CMakeFiles/assimp-populate
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/CMakeFiles/assimp-populate.rule
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/CMakeFiles/assimp-populate-complete.rule
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-build.rule
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-configure.rule
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-download.rule
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-install.rule
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-mkdir.rule
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-patch.rule
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-test.rule
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-update.rule

@@ -1,0 +1,3 @@
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/CMakeFiles/assimp-populate.dir
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/CMakeFiles/edit_cache.dir
+C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/CMakeFiles/rebuild_cache.dir

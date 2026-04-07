@@ -1,0 +1,21 @@
+# ninja log v7
+1	90	7972960024376943	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-mkdir	814bdea8d07748b1
+1	90	7972960024376943	C:/Code/MitaiEngine/build_release/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-mkdir	814bdea8d07748b1
+91	3386	7972960057316982	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-download	d69828a5e8226f26
+91	3386	7972960057316982	C:/Code/MitaiEngine/build_release/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-download	d69828a5e8226f26
+3386	3507	7972960057375424	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-update	7b8fddc0700698fc
+3386	3507	7972960057375424	C:/Code/MitaiEngine/build_release/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-update	7b8fddc0700698fc
+3507	3581	7972960059280763	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-patch	55273531a3f207a8
+3507	3581	7972960059280763	C:/Code/MitaiEngine/build_release/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-patch	55273531a3f207a8
+3582	3653	7972960059998451	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-configure	d41f5095dd87469e
+3582	3653	7972960059998451	C:/Code/MitaiEngine/build_release/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-configure	d41f5095dd87469e
+3653	3710	7972960060555135	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-build	5446a24341eaea41
+3653	3710	7972960060555135	C:/Code/MitaiEngine/build_release/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-build	5446a24341eaea41
+3710	3771	7972960061164391	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-install	4b7425b1a4f4bee8
+3710	3771	7972960061164391	C:/Code/MitaiEngine/build_release/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-install	4b7425b1a4f4bee8
+3771	3845	7972960061909436	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-test	da7ec2b7ad317cb5
+3771	3845	7972960061909436	C:/Code/MitaiEngine/build_release/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-test	da7ec2b7ad317cb5
+3845	3923	7972960062701114	CMakeFiles/glfw-populate-complete	e6349fe88482bb98
+3845	3923	7972960062701114	glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-done	e6349fe88482bb98
+3845	3923	7972960062701114	C:/Code/MitaiEngine/build_release/_deps/glfw-subbuild/CMakeFiles/glfw-populate-complete	e6349fe88482bb98
+3845	3923	7972960062701114	C:/Code/MitaiEngine/build_release/_deps/glfw-subbuild/glfw-populate-prefix/src/glfw-populate-stamp/glfw-populate-done	e6349fe88482bb98

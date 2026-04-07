@@ -1,0 +1,16 @@
+{
+	"InstallScripts" : 
+	[
+		"C:/Code/MitaiEngine/build_release/cmake_install.cmake",
+		"C:/Code/MitaiEngine/build_release/_deps/glfw-build/cmake_install.cmake",
+		"C:/Code/MitaiEngine/build_release/_deps/glfw-build/src/cmake_install.cmake",
+		"C:/Code/MitaiEngine/build_release/_deps/glfw-build/examples/cmake_install.cmake",
+		"C:/Code/MitaiEngine/build_release/_deps/glfw-build/tests/cmake_install.cmake",
+		"C:/Code/MitaiEngine/build_release/_deps/glm-build/cmake_install.cmake",
+		"C:/Code/MitaiEngine/build_release/_deps/glm-build/glm/cmake_install.cmake",
+		"C:/Code/MitaiEngine/build_release/_deps/assimp-build/cmake_install.cmake",
+		"C:/Code/MitaiEngine/build_release/_deps/assimp-build/contrib/zlib/cmake_install.cmake",
+		"C:/Code/MitaiEngine/build_release/_deps/assimp-build/code/cmake_install.cmake"
+	],
+	"Parallel" : false
+}

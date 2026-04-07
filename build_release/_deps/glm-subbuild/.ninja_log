@@ -1,0 +1,21 @@
+# ninja log v7
+1	58	7972960097714535	glm-populate-prefix/src/glm-populate-stamp/glm-populate-mkdir	47b1a309802a4357
+1	58	7972960097714535	C:/Code/MitaiEngine/build_release/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-mkdir	47b1a309802a4357
+58	7052	7972960167648327	glm-populate-prefix/src/glm-populate-stamp/glm-populate-download	2dbf306a8eb19a2f
+58	7052	7972960167648327	C:/Code/MitaiEngine/build_release/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-download	2dbf306a8eb19a2f
+7052	7172	7972960167703248	glm-populate-prefix/src/glm-populate-stamp/glm-populate-update	794366d67fa6dcfc
+7052	7172	7972960167703248	C:/Code/MitaiEngine/build_release/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-update	794366d67fa6dcfc
+7172	7248	7972960169623268	glm-populate-prefix/src/glm-populate-stamp/glm-populate-patch	559978dac460da59
+7172	7248	7972960169623268	C:/Code/MitaiEngine/build_release/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-patch	559978dac460da59
+7248	7306	7972960170199163	glm-populate-prefix/src/glm-populate-stamp/glm-populate-configure	cdb84a47c6205051
+7248	7306	7972960170199163	C:/Code/MitaiEngine/build_release/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-configure	cdb84a47c6205051
+7306	7361	7972960170744917	glm-populate-prefix/src/glm-populate-stamp/glm-populate-build	20b35f9eedf20a88
+7306	7361	7972960170744917	C:/Code/MitaiEngine/build_release/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-build	20b35f9eedf20a88
+7361	7417	7972960171312506	glm-populate-prefix/src/glm-populate-stamp/glm-populate-install	2a4f53e7dbcfa521
+7361	7417	7972960171312506	C:/Code/MitaiEngine/build_release/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-install	2a4f53e7dbcfa521
+7418	7473	7972960171877022	glm-populate-prefix/src/glm-populate-stamp/glm-populate-test	ab0694fd51236eb8
+7418	7473	7972960171877022	C:/Code/MitaiEngine/build_release/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-test	ab0694fd51236eb8
+7474	7547	7972960172600018	CMakeFiles/glm-populate-complete	c5d8ba2a610faef2
+7474	7547	7972960172600018	glm-populate-prefix/src/glm-populate-stamp/glm-populate-done	c5d8ba2a610faef2
+7474	7547	7972960172600018	C:/Code/MitaiEngine/build_release/_deps/glm-subbuild/CMakeFiles/glm-populate-complete	c5d8ba2a610faef2
+7474	7547	7972960172600018	C:/Code/MitaiEngine/build_release/_deps/glm-subbuild/glm-populate-prefix/src/glm-populate-stamp/glm-populate-done	c5d8ba2a610faef2

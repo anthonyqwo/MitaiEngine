@@ -1,0 +1,21 @@
+# ninja log v7
+1	70	7972960387174315	assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-mkdir	14c87da1b9043753
+1	70	7972960387174315	C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-mkdir	14c87da1b9043753
+71	13702	7972960523488080	assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-download	c86b3345229f692f
+71	13702	7972960523488080	C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-download	c86b3345229f692f
+13702	13818	7972960523533629	assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-update	8f62c50f5ceb2489
+13702	13818	7972960523533629	C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-update	8f62c50f5ceb2489
+13818	13871	7972960525181187	assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-patch	e233b96838259d32
+13818	13871	7972960525181187	C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-patch	e233b96838259d32
+13871	13922	7972960525691349	assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-configure	7e24ccaab25d656e
+13871	13922	7972960525691349	C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-configure	7e24ccaab25d656e
+13922	13975	7972960526222189	assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-build	88e3bcfc97a680b1
+13922	13975	7972960526222189	C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-build	88e3bcfc97a680b1
+13975	14034	7972960526804441	assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-install	a90c81ea9dd8d396
+13975	14034	7972960526804441	C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-install	a90c81ea9dd8d396
+14034	14092	7972960527387451	assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-test	7adc2f565656dd7e
+14034	14092	7972960527387451	C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-test	7adc2f565656dd7e
+14092	14158	7972960528053169	CMakeFiles/assimp-populate-complete	cbf7be927a37a534
+14092	14158	7972960528053169	assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-done	cbf7be927a37a534
+14092	14158	7972960528053169	C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/CMakeFiles/assimp-populate-complete	cbf7be927a37a534
+14092	14158	7972960528053169	C:/Code/MitaiEngine/build_release/_deps/assimp-subbuild/assimp-populate-prefix/src/assimp-populate-stamp/assimp-populate-done	cbf7be927a37a534
