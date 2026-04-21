@@ -50,6 +50,8 @@ Application::~Application() {
     delete physicsSystem;
     ResourceManager::clear();
     delete helmetModel;
+    delete houseModel;
+    delete treeModel;
 }
 
 bool Application::init() {
@@ -99,6 +101,9 @@ void Application::setupResources() {
     ResourceManager::loadTexture("assets/water_normal.jpg", "waterNorm");
     ResourceManager::loadTexture("assets/wall.jpg", "floorDiff");
     ResourceManager::loadTexture("assets/wall_normal.jpg", "floorNorm");
+    // Save original floor textures under alternate names for scene switching
+    ResourceManager::Textures["wallDiff"] = ResourceManager::getTexture("floorDiff");
+    ResourceManager::Textures["wallNorm"] = ResourceManager::getTexture("floorNorm");
     ResourceManager::createSolidTexture(255, 255, 255, "whiteTex");
     ResourceManager::createSolidTexture(128, 128, 255, "flatNormalTex");
     ResourceManager::createSolidTexture(0, 0, 0, "blackTex");
@@ -127,6 +132,11 @@ void Application::setupResources() {
     ResourceManager::Textures["brdfLUT"] = scene->brdfLUT;
 
     helmetModel = new Model("assets/models/DamagedHelmet.glb");
+    houseModel = new Model("assets/models/world/fantasy_house.glb");
+    treeModel = new Model("assets/models/world/trees.glb");
+
+    ResourceManager::loadTexture("assets/grass_diffuse.jpg", "grassDiff");
+    ResourceManager::loadTexture("assets/grass_normal.jpg", "grassNorm");
     
     ResourceManager::getShader("skybox")->use(); 
     ResourceManager::getShader("skybox")->setInt("skybox", 0);
@@ -145,6 +155,9 @@ void Application::setupResources() {
 }
 
 void Application::loadDefaultScene() {
+    // Restore original floor textures
+    ResourceManager::Textures["floorDiff"] = ResourceManager::getTexture("wallDiff");
+    ResourceManager::Textures["floorNorm"] = ResourceManager::getTexture("wallNorm");
     scene->camera.Position = glm::vec3(0.0f, 2.0f, 5.0f);
     scene->camera.Pitch = 0.0f;
     scene->camera.Yaw = -90.0f;
@@ -199,6 +212,9 @@ void Application::loadDefaultScene() {
 }
 
 void Application::loadCollisionDemoScene() {
+    // Restore original floor textures
+    ResourceManager::Textures["floorDiff"] = ResourceManager::getTexture("wallDiff");
+    ResourceManager::Textures["floorNorm"] = ResourceManager::getTexture("wallNorm");
     scene->camera.Position = glm::vec3(0.0f, 15.0f, 35.0f);
     scene->camera.Pitch = -30.0f;
     scene->camera.ProcessMouseMovement(0, 0); // update vectors
@@ -255,6 +271,145 @@ void Application::loadCollisionDemoScene() {
     Entity obj4("BigBox4", CUBE, glm::vec3(5.0f, 2.0f, 5.0f), glm::vec3(0.8f, 0.5f, 0.2f));
     obj4.scale = glm::vec3(4.0f, 4.0f, 4.0f); obj4.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f)); obj4.mass = 0.0f; scene->addEntity(obj4);
 }
+
+void Application::loadWorldScene() {
+    // Swap floor textures to grass for this scene
+    ResourceManager::Textures["floorDiff"] = ResourceManager::getTexture("grassDiff");
+    ResourceManager::Textures["floorNorm"] = ResourceManager::getTexture("grassNorm");
+
+    // Camera: start elevated, looking toward the house
+    scene->camera.Position = glm::vec3(8.0f, 3.0f, 12.0f);
+    scene->camera.Pitch = -10.0f;
+    scene->camera.Yaw = -110.0f;
+    scene->camera.ProcessMouseMovement(0, 0);
+
+    // === Lighting ===
+    Entity sunEnt("Main Sun", CUBE, glm::vec3(15.0f, 20.0f, 10.0f), glm::vec3(1.0f, 0.95f, 0.85f));
+    sunEnt.isLight = true; sunEnt.lightColor = glm::vec3(1.0f, 0.95f, 0.85f);
+    sunEnt.lightIntensity = 5.0f; sunEnt.scale = glm::vec3(0.3f);
+    sunEnt.hasCollision = false;
+    scene->addEntity(sunEnt);
+
+    // Interior point light inside house
+    Entity lampEnt("Point Light", CUBE, glm::vec3(0.0f, 2.5f, 0.0f), glm::vec3(1.0f, 0.8f, 0.4f));
+    lampEnt.isLight = true; lampEnt.lightColor = glm::vec3(1.0f, 0.8f, 0.4f);
+    lampEnt.lightIntensity = 3.0f; lampEnt.scale = glm::vec3(0.15f);
+    lampEnt.hasCollision = false;
+    scene->addEntity(lampEnt);
+
+    // === Ground Terrain (large grass-textured floor) ===
+    // Floor geometry Y=0 locally, positioned at Y=-0.5 like Water Demo
+    Entity groundEnt("Terrain", FLOOR, glm::vec3(0, -0.5f, 0), glm::vec3(0.6f, 0.8f, 0.4f));
+    groundEnt.scale = glm::vec3(5.0f, 1.0f, 5.0f);
+    groundEnt.roughness = 0.9f; groundEnt.metallic = 0.0f;
+    groundEnt.ambient = 1.0f; groundEnt.reflectivity = 0.02f;
+    groundEnt.hasCollision = false;
+    scene->addEntity(groundEnt);
+
+    // === Water Lake (same approach as Water Demo: water Y just above floor Y) ===
+    Entity waterEnt("Water Surface", WATER, glm::vec3(-10.0f, -0.49f, -8.0f), glm::vec3(0.1f, 0.3f, 0.6f));
+    waterEnt.scale = glm::vec3(1.5f, 1.0f, 1.5f);
+    waterEnt.roughness = 0.1f; waterEnt.reflectivity = 0.4f; waterEnt.metallic = 0.0f;
+    waterEnt.hasCollision = false;
+    scene->addEntity(waterEnt);
+
+    // === House (Fantasy House GLB) ===
+    Entity houseEnt("House", MODEL, glm::vec3(0.0f, -0.5f, 0.0f), glm::vec3(1.0f));
+    houseEnt.model = houseModel;
+    houseEnt.scale = glm::vec3(3.0f);
+    houseEnt.metallic = 0.1f; houseEnt.roughness = 0.8f;
+    houseEnt.ambient = 1.0f; houseEnt.reflectivity = 0.05f;
+    houseEnt.localBounds = houseModel->localBounds;
+    houseEnt.hasCollision = false; // allow camera to enter
+    scene->addEntity(houseEnt);
+
+    // === Trees (scattered across terrain) ===
+    struct TreePlacement { float x, z, rotY, sc; };
+    TreePlacement treePlacements[] = {
+        { 8.0f,  10.0f,  45.0f, 1.5f},   {-5.0f,  12.0f, 120.0f, 1.8f},
+        {10.0f,  -6.0f, 200.0f, 1.6f},   {-10.0f,  4.0f,  80.0f, 1.4f},
+        {15.0f,   4.0f, 160.0f, 2.0f},   {-6.0f, -15.0f, 300.0f, 1.5f},
+        { 5.0f, -12.0f,  30.0f, 1.7f},   {16.0f,  12.0f, 250.0f, 1.3f},
+        {-15.0f, 10.0f, 140.0f, 1.9f},   {-16.0f,-12.0f,  60.0f, 1.6f},
+        {12.0f, -14.0f, 180.0f, 1.2f},   { 3.0f,  16.0f, 350.0f, 2.0f},
+    };
+    for (int i = 0; i < 12; i++) {
+        const auto& tp = treePlacements[i];
+        Entity treeEnt("Tree_" + std::to_string(i), MODEL, glm::vec3(tp.x, -0.5f, tp.z), glm::vec3(0.5f, 0.7f, 0.3f));
+        treeEnt.model = treeModel;
+        treeEnt.scale = glm::vec3(tp.sc);
+        treeEnt.rotation.y = tp.rotY;
+        treeEnt.metallic = 0.0f; treeEnt.roughness = 0.9f;
+        treeEnt.ambient = 1.0f; treeEnt.reflectivity = 0.02f;
+        treeEnt.localBounds = treeModel->localBounds;
+        treeEnt.hasCollision = false;
+        scene->addEntity(treeEnt);
+    }
+
+    // === Hills (terrain mounds using scaled spheres, poke ABOVE ground) ===
+    struct HillPlacement { float x, z, sx, sy, sz; glm::vec3 col; };
+    HillPlacement hills[] = {
+        { 20.0f,  0.0f,  7.0f, 3.0f, 5.0f, glm::vec3(0.35f, 0.5f, 0.25f)},
+        {-20.0f,  8.0f,  5.0f, 2.0f, 6.0f, glm::vec3(0.3f, 0.45f, 0.2f)},
+        {  8.0f,-20.0f,  8.0f, 3.5f, 7.0f, glm::vec3(0.4f, 0.55f, 0.3f)},
+        {-18.0f,-16.0f,  6.0f, 2.5f, 4.0f, glm::vec3(0.32f, 0.48f, 0.22f)},
+        { 16.0f, 16.0f,  4.0f, 1.8f, 5.0f, glm::vec3(0.38f, 0.52f, 0.28f)},
+    };
+    for (int i = 0; i < 5; i++) {
+        const auto& h = hills[i];
+        // Y = -0.5 + sy*0.3 so the sphere pokes above ground
+        Entity hillEnt("Hill_" + std::to_string(i), SPHERE, glm::vec3(h.x, -0.5f + h.sy * 0.3f, h.z), h.col);
+        hillEnt.scale = glm::vec3(h.sx, h.sy, h.sz);
+        hillEnt.roughness = 0.95f; hillEnt.metallic = 0.0f;
+        hillEnt.ambient = 1.0f; hillEnt.reflectivity = 0.01f;
+        hillEnt.localBounds = AABB(glm::vec3(-1.0f), glm::vec3(1.0f));
+        hillEnt.hasCollision = false;
+        scene->addEntity(hillEnt);
+    }
+
+    // === Rocks (scattered on the ground surface) ===
+    struct RockPlacement { float x, z, rotY, sc; };
+    RockPlacement rocks[] = {
+        {-12.0f, -6.0f, 35.0f, 0.8f},
+        { -6.0f, -10.0f, 120.0f, 0.5f},
+        { 14.0f,  6.0f, 200.0f, 0.6f},
+        {  3.0f, -16.0f, 80.0f, 0.7f},
+        {-14.0f, 14.0f, 260.0f, 0.9f},
+        { 18.0f, -8.0f, 150.0f, 0.4f},
+    };
+    for (int i = 0; i < 6; i++) {
+        const auto& r = rocks[i];
+        // Rocks sit ON the ground: Y = -0.5 + half height
+        float halfH = r.sc * 0.6f * 0.5f;
+        Entity rockEnt("Rock_" + std::to_string(i), SPHERE, glm::vec3(r.x, -0.5f + halfH, r.z), glm::vec3(0.45f, 0.42f, 0.38f));
+        rockEnt.scale = glm::vec3(r.sc, r.sc * 0.6f, r.sc * 0.8f);
+        rockEnt.rotation.y = r.rotY;
+        rockEnt.roughness = 0.95f; rockEnt.metallic = 0.0f;
+        rockEnt.ambient = 1.0f; rockEnt.reflectivity = 0.03f;
+        rockEnt.localBounds = AABB(glm::vec3(-1.0f), glm::vec3(1.0f));
+        rockEnt.hasCollision = false;
+        scene->addEntity(rockEnt);
+    }
+
+    // === Decorative wooden fences near house ===
+    for (int i = -3; i <= 3; i++) {
+        Entity fencePost("Fence_" + std::to_string(i + 3), CUBE, glm::vec3(i * 1.5f, -0.1f, 5.0f), glm::vec3(0.55f, 0.35f, 0.15f));
+        fencePost.scale = glm::vec3(0.15f, 0.6f, 0.15f);
+        fencePost.roughness = 0.9f; fencePost.metallic = 0.0f;
+        fencePost.ambient = 1.0f; fencePost.reflectivity = 0.02f;
+        fencePost.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+        fencePost.hasCollision = false;
+        scene->addEntity(fencePost);
+    }
+    Entity fenceRail("FenceRail", CUBE, glm::vec3(0.0f, 0.05f, 5.0f), glm::vec3(0.55f, 0.35f, 0.15f));
+    fenceRail.scale = glm::vec3(10.0f, 0.08f, 0.1f);
+    fenceRail.roughness = 0.9f; fenceRail.metallic = 0.0f;
+    fenceRail.ambient = 1.0f; fenceRail.reflectivity = 0.02f;
+    fenceRail.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    fenceRail.hasCollision = false;
+    scene->addEntity(fenceRail);
+}
+
 
 void Application::processInput() {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) glfwSetWindowShouldClose(window, true);
@@ -324,15 +479,24 @@ void Application::renderImGui() {
       ImGui::End(); }
     { ImGui::Begin("Engine Controls"); 
       if (ImGui::Button("Scene: Water Demo")) {
+          physicsSystem->reset();
           scene->entities.clear(); selectedEntityIndex = -1;
           loadDefaultScene();
           isCollisionDemo = false;
       }
       ImGui::SameLine();
       if (ImGui::Button("Scene: Collision Demo")) {
+          physicsSystem->reset();
           scene->entities.clear(); selectedEntityIndex = -1;
           loadCollisionDemoScene();
           isCollisionDemo = true;
+      }
+      ImGui::SameLine();
+      if (ImGui::Button("Scene: World Demo")) {
+          physicsSystem->reset();
+          scene->entities.clear(); selectedEntityIndex = -1;
+          loadWorldScene();
+          isCollisionDemo = false;
       }
       ImGui::Separator();
       ImGui::Checkbox("Normal Map", &useNormalMap); ImGui::Checkbox("Light 2 Moving", &light2Moving); ImGui::Separator();

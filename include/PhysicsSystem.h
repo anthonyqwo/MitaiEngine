@@ -7,8 +7,8 @@
 extern int g_collisionChecks;
 
 struct Cell {
-    std::vector<Entity*> staticEntities;
-    std::vector<Entity*> dynamicEntities;
+    std::vector<int> staticEntities;
+    std::vector<int> dynamicEntities;
 };
 
 class PhysicsSystem {
@@ -16,6 +16,7 @@ public:
     PhysicsSystem();
     void buildStaticGrid(Scene* scene);
     void update(Scene* scene, float deltaTime, bool useGrid);
+    void reset();
 
 private:
     Cell grid[7][7][7];

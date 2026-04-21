@@ -4,11 +4,13 @@
 
 int g_collisionChecks = 0;
 
-PhysicsSystem::PhysicsSystem() {}
+void PhysicsSystem::reset() {
+    gridBuilt = false;
+    g_collisionChecks = 0;
+}
 
 void PhysicsSystem::buildStaticGrid(Scene* scene) {
     if (gridBuilt) return;
-    
     for (int x=0; x<7; x++) {
         for (int y=0; y<7; y++) {
             for (int z=0; z<7; z++) {
@@ -16,19 +18,18 @@ void PhysicsSystem::buildStaticGrid(Scene* scene) {
             }
         }
     }
-    
-    for (auto& entity : scene->entities) {
+    for (int i = 0; i < scene->entities.size(); i++) {
+        auto& entity = scene->entities[i];
         if (entity.name == "DynamicSphere") continue;
         if (!entity.hasCollision || entity.mass > 0.0f) continue;
         
         AABB objAABB = entity.getGlobalBounds();
-        
         for (int x=0; x<7; x++) {
             for (int y=0; y<7; y++) {
                 for (int z=0; z<7; z++) {
                     AABB cellAABB = getGridAABB(x, y, z);
                     if (objAABB.intersects(cellAABB)) {
-                        grid[x][y][z].staticEntities.push_back(&entity);
+                        grid[x][y][z].staticEntities.push_back(i);
                     }
                 }
             }
@@ -36,6 +37,8 @@ void PhysicsSystem::buildStaticGrid(Scene* scene) {
     }
     gridBuilt = true;
 }
+
+PhysicsSystem::PhysicsSystem() {}
 
 void PhysicsSystem::update(Scene* scene, float deltaTime, bool useGrid) {
     g_collisionChecks = 0;
@@ -142,7 +145,7 @@ void PhysicsSystem::updateExhaustive(Scene* scene, float deltaTime) {
 }
 
 void PhysicsSystem::updateGrid(Scene* scene, float deltaTime) {
-    // 1. Clear dynamic grids
+    // 1. Clear ONLY dynamic grids (statics are precalculated indices)
     for (int x=0; x<7; x++) {
         for (int y=0; y<7; y++) {
             for (int z=0; z<7; z++) {
@@ -151,42 +154,48 @@ void PhysicsSystem::updateGrid(Scene* scene, float deltaTime) {
         }
     }
     
-    std::vector<Entity*> dynamicSpheres;
-    // 2. Classify dynamic
-    for (auto& e : scene->entities) {
+    std::vector<int> dynamicSpheres;
+    
+    // 2. Classify dynamic entities by index
+    for (int i = 0; i < scene->entities.size(); i++) {
+        auto& e = scene->entities[i];
+        if (!e.hasCollision) continue;
+        
         if (e.name == "DynamicSphere") {
-            dynamicSpheres.push_back(&e);
+            dynamicSpheres.push_back(i);
             glm::ivec3 cell = getGridCell(e.position);
-            grid[cell.x][cell.y][cell.z].dynamicEntities.push_back(&e);
+            grid[cell.x][cell.y][cell.z].dynamicEntities.push_back(i);
         }
     }
     
-    // 3. Resolve using grid
-    for (Entity* sphere : dynamicSpheres) {
+    // 3. Resolve using grid via index loops
+    for (int sphereIdx : dynamicSpheres) {
+        Entity* sphere = &scene->entities[sphereIdx];
         glm::ivec3 cell = getGridCell(sphere->position);
         
-        std::vector<Entity*> checkedStatics; // prevent duplicate static checks due to large size
+        std::vector<int> checkedStatics; // Prevent duplicate checking across adjacent cells
         
-        int r = 1; // adjacent
+        int r = 1; // adjacent extent
         for (int nx = std::max(0, cell.x - r); nx <= std::min(6, cell.x + r); nx++) {
             for (int ny = std::max(0, cell.y - r); ny <= std::min(6, cell.y + r); ny++) {
                 for (int nz = std::max(0, cell.z - r); nz <= std::min(6, cell.z + r); nz++) {
                     
-                    for (Entity* staticEnt : grid[nx][ny][nz].staticEntities) {
-                        bool alreadyCmd = false;
-                        for (auto* k : checkedStatics) if (k == staticEnt) { alreadyCmd = true; break;}
-                        if (!alreadyCmd) {
+                    for (int staticIdx : grid[nx][ny][nz].staticEntities) {
+                        bool alreadyChecked = false;
+                        for (int k : checkedStatics) {
+                            if (k == staticIdx) { alreadyChecked = true; break;}
+                        }
+                        if (!alreadyChecked) {
                             g_collisionChecks++;
-                            resolveCollisionSphereAABB(sphere, staticEnt);
-                            checkedStatics.push_back(staticEnt);
+                            resolveCollisionSphereAABB(sphere, &scene->entities[staticIdx]);
+                            checkedStatics.push_back(staticIdx);
                         }
                     }
                     
-                    for (Entity* otherDyn : grid[nx][ny][nz].dynamicEntities) {
-                        if (sphere != otherDyn && sphere < otherDyn) { 
-                            // Avoid double check by standard pointer comparison
+                    for (int otherDynIdx : grid[nx][ny][nz].dynamicEntities) {
+                        if (sphereIdx != otherDynIdx && sphereIdx < otherDynIdx) { 
                             g_collisionChecks++;
-                            resolveCollisionSphereSphere(sphere, otherDyn);
+                            resolveCollisionSphereSphere(sphere, &scene->entities[otherDynIdx]);
                         }
                     }
                 }

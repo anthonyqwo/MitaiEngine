@@ -12,7 +12,7 @@ if (Test-Path build_release) {
 }
 
 Write-Host "--- 1. Generating Release Build Files ---" -ForegroundColor Cyan
-cmake -G Ninja -B build_release -DCMAKE_BUILD_TYPE=MinSizeRel "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" "-DCMAKE_C_FLAGS_MINSIZEREL=-Os -DNDEBUG -s" "-DCMAKE_CXX_FLAGS_MINSIZEREL=-Os -DNDEBUG -s" "-DCMAKE_EXE_LINKER_FLAGS=-s -Wl,--gc-sections" "-DCMAKE_C_FLAGS=-ffunction-sections -fdata-sections" "-DCMAKE_CXX_FLAGS=-ffunction-sections -fdata-sections"
+cmake -G Ninja -B build_release -DCMAKE_BUILD_TYPE=MinSizeRel "-DCMAKE_POLICY_VERSION_MINIMUM=3.5" "-DCMAKE_C_FLAGS_MINSIZEREL=-Os -DNDEBUG" "-DCMAKE_CXX_FLAGS_MINSIZEREL=-Os -DNDEBUG" "-DCMAKE_EXE_LINKER_FLAGS=-s -Wl,--gc-sections" "-DCMAKE_C_FLAGS=-ffunction-sections -fdata-sections -Wno-unused-command-line-argument -Wno-error" "-DCMAKE_CXX_FLAGS=-ffunction-sections -fdata-sections -Wno-unused-command-line-argument -Wno-error"
 
 if ($LASTEXITCODE -ne 0) {
     Write-Error "CMake generation failed!"

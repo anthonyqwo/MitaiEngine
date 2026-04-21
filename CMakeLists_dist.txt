@@ -3,6 +3,29 @@ project(GameEngine)
 set(CMAKE_POLICY_VERSION_MINIMUM 3.5)
 set(CMAKE_CXX_STANDARD 17)
 
+# ==============================================================
+# --- 終極小體積發行配置 (Size Optimization Configuration) ---
+# ==============================================================
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
+    # 1. 開啟 LTO (Link Time Optimization) - 極大瘦身與極致效能
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT lto_supported)
+    if(lto_supported)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION TRUE)
+        message(STATUS "LTO (Link Time Optimization) Enabled.")
+    endif()
+    
+    # 2. 開啟死代碼消除與 -Os 大幅縮小體積
+    add_compile_options(-Os -ffunction-sections -fdata-sections)
+    
+    # 3. 關閉除錯巨集，消除 assert() 開銷
+    add_compile_definitions(NDEBUG)
+elseif(MSVC)
+    add_compile_options(/O1 /Gw /Gy /MT)
+    add_link_options(/OPT:REF /OPT:ICF)
+endif()
+# ==============================================================
+
 # --- GLFW ---
 include(FetchContent)
 FetchContent_Declare(glfw GIT_REPOSITORY https://github.com/glfw/glfw.git GIT_TAG 3.3.8)
@@ -34,21 +57,28 @@ set(ASSIMP_BUILD_ZLIB ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_EXPORTERS OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_3DS_IMPORTER OFF CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_3DS_EXPORTER OFF CACHE BOOL "" FORCE)
-# 禁用所有預設 Importers 以節省空間並修復 MinGW 編譯錯誤
+# 禁用所有預設 Importers 以節省空間
 set(ASSIMP_BUILD_ALL_IMPORTERS_BY_DEFAULT OFF CACHE BOOL "" FORCE)
 # 僅啟用需要的格式
 set(ASSIMP_BUILD_GLTF_IMPORTER ON CACHE BOOL "" FORCE)
 set(ASSIMP_BUILD_OBJ_IMPORTER ON CACHE BOOL "" FORCE)
+set(ASSIMP_WARNINGS_AS_ERRORS OFF CACHE BOOL "" FORCE)
+
+# Fix for Clang 20+ compiling Assimp
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -Wno-error -Wno-nontrivial-memcall")
+    set(CMAKE_C_FLAGS "${CMAKE_C_FLAGS} -Wno-error")
+endif()
 
 FetchContent_Declare(assimp GIT_REPOSITORY https://github.com/assimp/assimp.git GIT_TAG v5.2.5)
 FetchContent_MakeAvailable(assimp)
-# Assimp v5.2.5 triggers multiple warnings on Clang 20+; disable -Werror for it
 if(TARGET assimp)
     target_compile_options(assimp PRIVATE -Wno-error)
 endif()
 
 # --- Project ---
 file(GLOB_RECURSE SOURCES "src/*.cpp" "src/*.c")
+# 注意：如果想隱藏 Console，需將原始碼中的 main 改為 WinMain，或在此修改 /ENTRY 參數
 add_executable(${PROJECT_NAME} ${SOURCES} ${IMGUI_SOURCES})
 
 target_include_directories(${PROJECT_NAME} PRIVATE 

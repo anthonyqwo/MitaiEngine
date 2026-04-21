@@ -123,7 +123,7 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
     // Fix degenerate lookAt when sun is directly above (direction parallel to up)
     glm::vec3 sunDir = glm::normalize(glm::vec3(0) - sP);
     glm::vec3 shadowUp = (glm::abs(glm::dot(sunDir, glm::vec3(0,1,0))) > 0.99f) ? glm::vec3(0,0,1) : glm::vec3(0,1,0);
-    glm::mat4 lProj=glm::ortho(-15.0f,15.0f,-15.0f,15.0f,0.5f,40.0f), lView=glm::lookAt(sP,glm::vec3(0),shadowUp), lSpace=lProj*lView;
+    glm::mat4 lProj=glm::ortho(-30.0f,30.0f,-30.0f,30.0f,0.5f,80.0f), lView=glm::lookAt(sP,glm::vec3(0),shadowUp), lSpace=lProj*lView;
     float far_p=30.0f; glm::mat4 pProj=glm::perspective(glm::radians(90.0f),1.0f,1.0f,far_p);
     std::vector<glm::mat4> pMats;
     pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(1,0,0),glm::vec3(0,-1,0))); pMats.push_back(pProj*glm::lookAt(pP,pP+glm::vec3(-1,0,0),glm::vec3(0,-1,0)));
@@ -169,7 +169,7 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
         viewports.push_back({0, 0, (int)hw, (int)hh, glm::lookAt(glm::vec3(0, 10.5f, 10.4f), glm::vec3(0, 10.5f, 0), glm::vec3(0, 1, 0)), oProj, glm::vec3(0, 10.5f, 10.4f)}); // Front
         viewports.push_back({(int)hw, 0, (int)hw, (int)hh, glm::lookAt(glm::vec3(10.4f, 10.5f, 0), glm::vec3(0, 10.5f, 0), glm::vec3(0, 1, 0)), oProj, glm::vec3(10.4f, 10.5f, 0)}); // Side
     } else {
-        viewports.push_back({0, 0, (int)SCR_WIDTH, (int)SCR_HEIGHT, scene->camera.GetViewMatrix(), glm::perspective(glm::radians(scene->camera.Zoom),(float)SCR_WIDTH/SCR_HEIGHT,0.1f,100.0f), scene->camera.Position});
+        viewports.push_back({0, 0, (int)SCR_WIDTH, (int)SCR_HEIGHT, scene->camera.GetViewMatrix(), glm::perspective(glm::radians(scene->camera.Zoom),(float)SCR_WIDTH/SCR_HEIGHT,0.1f,500.0f), scene->camera.Position});
     }
 
     // 1. Geometry Pass (G-Buffer)
