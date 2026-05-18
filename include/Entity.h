@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <string>
+#include <glm/gtc/quaternion.hpp>
 #include "Collider.h"
 
 enum EntityType { CUBE, SPHERE, ICOSAHEDRON, ADV_SPHERE, FLOOR, PARTICLE, WATER, MODEL };
@@ -45,6 +46,26 @@ struct Entity {
     float radius = 0.5f;
     float mass = 1.0f;
 
+    // 浮力模擬屬性 (Buoyancy Simulation Properties)
+    bool isBuoyant = false;
+    int buoyancyType = 0; // 0 = SPHERE, 1 = SLAB, 2 = OPEN_BOX
+    glm::vec3 angularVelocity = glm::vec3(0.0f);
+    glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+    glm::vec3 buoyancyCenter = glm::vec3(0.0f);
+    glm::vec3 buoyancyForce = glm::vec3(0.0f);
+    float submergedFraction = 0.0f;
+    float floodLevel = 0.0f;
+    float dryTimer = 0.0f;
+
+    // Cargo-load extension
+    bool isCargo = false;
+    glm::vec3 cargoLocalOffset = glm::vec3(0.0f);
+
+    // Grabbing state
+    bool isGrabbed = false;
+    glm::vec3 localGrabOffset = glm::vec3(0.0f);
+    glm::vec3 targetGrabWorld = glm::vec3(0.0f);
+
     Entity(std::string n, EntityType t, glm::vec3 pos = glm::vec3(0.0f), glm::vec3 col = glm::vec3(1.0f))
         : name(n), type(t), position(pos), rotation(0.0f), scale(1.0f), color(col), originalColor(col) {}
         
@@ -57,9 +78,13 @@ struct Entity {
     glm::mat4 getModelMatrix() const {
         glm::mat4 model = glm::mat4(1.0f);
         model = glm::translate(model, position);
-        model = glm::rotate(model, glm::radians(rotation.x), glm::vec3(1, 0, 0));
-        model = glm::rotate(model, glm::radians(rotation.y), glm::vec3(0, 1, 0));
-        model = glm::rotate(model, glm::radians(rotation.z), glm::vec3(0, 0, 1));
+        if (isBuoyant) {
+            model = model * glm::mat4_cast(orientation);
+        } else {
+            model = glm::rotate(model, glm::radians(rotation.x), glm::vec3(1, 0, 0));
+            model = glm::rotate(model, glm::radians(rotation.y), glm::vec3(0, 1, 0));
+            model = glm::rotate(model, glm::radians(rotation.z), glm::vec3(0, 0, 1));
+        }
         model = glm::scale(model, scale);
         return model;
     }

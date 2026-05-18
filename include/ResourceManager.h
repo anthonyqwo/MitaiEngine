@@ -12,6 +12,7 @@ public:
     static std::map<std::string, unsigned int> Textures;
     
     static Shader* loadShader(const char *vShaderFile, const char *fShaderFile, const char *gShaderFile, const char *tcShaderFile, const char *teShaderFile, std::string name);
+    static Shader* loadComputeShader(const char *cShaderFile, std::string name);
     static Shader* getShader(std::string name);
     
     static unsigned int loadTexture(const char *file, std::string name);

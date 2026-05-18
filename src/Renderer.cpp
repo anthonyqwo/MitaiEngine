@@ -1,18 +1,40 @@
 #include "Renderer.h"
 #include <glm/gtc/matrix_transform.hpp>
+#include "ResourceManager.h"
 #include <iostream>
 #include <GLFW/glfw3.h>
 #include "Geometry.h"
 #include "Model.h"
+#include <imgui.h>
 
 Renderer::Renderer(unsigned int scrWidth, unsigned int scrHeight) 
     : SCR_WIDTH(scrWidth), SCR_HEIGHT(scrHeight) {
+    waterGridVAO = 0;
+    waterGridVBO = 0;
+    waterGridEBO = 0;
+    waterGridIndexCount = 0;
     setupGBuffer();
     setupShadows();
     setupGeometry();
+    
+    glGenQueries(1, &queryShadow);
+    glGenQueries(1, &queryGeometry);
+    glGenQueries(1, &queryIBL);
+    glGenQueries(1, &queryWater);
+    glGenQueries(1, &queryPost);
 }
 
-Renderer::~Renderer() { }
+Renderer::~Renderer() {
+    if (waterGridVAO != 0) glDeleteVertexArrays(1, &waterGridVAO);
+    if (waterGridVBO != 0) glDeleteBuffers(1, &waterGridVBO);
+    if (waterGridEBO != 0) glDeleteBuffers(1, &waterGridEBO);
+    
+    glDeleteQueries(1, &queryShadow);
+    glDeleteQueries(1, &queryGeometry);
+    glDeleteQueries(1, &queryIBL);
+    glDeleteQueries(1, &queryWater);
+    glDeleteQueries(1, &queryPost);
+}
 
 void Renderer::setupGBuffer() {
     glGenFramebuffers(1, &gBuffer);
@@ -65,8 +87,10 @@ void Renderer::setupShadows() {
     glGenFramebuffers(1, &pointShadowFBO); glGenTextures(1, &depthCubemap);
     glBindTexture(GL_TEXTURE_CUBE_MAP, depthCubemap);
     for(int i=0; i<6; i++) glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X+i, 0, GL_DEPTH_COMPONENT, 1024, 1024, 0, GL_DEPTH_COMPONENT, GL_FLOAT, NULL);
-    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_NEAREST); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_COMPARE_MODE, GL_COMPARE_REF_TO_TEXTURE);
+    glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_COMPARE_FUNC, GL_LEQUAL);
     glBindFramebuffer(GL_FRAMEBUFFER, pointShadowFBO); glFramebufferTexture(GL_FRAMEBUFFER, GL_DEPTH_ATTACHMENT, depthCubemap, 0);
     glDrawBuffer(GL_NONE); glReadBuffer(GL_NONE); glBindFramebuffer(GL_FRAMEBUFFER, 0);
 }
@@ -99,6 +123,87 @@ void Renderer::setupGeometry() {
     glBindVertexArray(skVAO); glBindBuffer(GL_ARRAY_BUFFER, skVBO); glBufferData(GL_ARRAY_BUFFER, sizeof(skyV), skyV, GL_STATIC_DRAW);
     glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3*sizeof(float), (void*)0); glEnableVertexAttribArray(0);
 
+    // Generate high-resolution subdivided water grid (128x128 vertices)
+    {
+        int N = 128;
+        std::vector<float> gridVertices;
+        std::vector<unsigned int> gridIndices;
+        gridVertices.reserve(N * N * 11);
+        gridIndices.reserve((N - 1) * (N - 1) * 6);
+        
+        for (int z = 0; z < N; ++z) {
+            float fz = (float)z / (float)(N - 1);
+            float pz = -7.0f + 14.0f * fz;
+            for (int x = 0; x < N; ++x) {
+                float fx = (float)x / (float)(N - 1);
+                float px = -7.0f + 14.0f * fx;
+                
+                // Position
+                gridVertices.push_back(px);
+                gridVertices.push_back(0.0f);
+                gridVertices.push_back(pz);
+                
+                // Normal
+                gridVertices.push_back(0.0f);
+                gridVertices.push_back(1.0f);
+                gridVertices.push_back(0.0f);
+                
+                // TexCoords
+                gridVertices.push_back(fx * 5.0f);
+                gridVertices.push_back(fz * 5.0f);
+                
+                // Tangent
+                gridVertices.push_back(1.0f);
+                gridVertices.push_back(0.0f);
+                gridVertices.push_back(0.0f);
+            }
+        }
+        
+        for (int z = 0; z < N - 1; ++z) {
+            for (int x = 0; x < N - 1; ++x) {
+                unsigned int i0 = z * N + x;
+                unsigned int i1 = i0 + 1;
+                unsigned int i2 = (z + 1) * N + x;
+                unsigned int i3 = i2 + 1;
+                
+                gridIndices.push_back(i0);
+                gridIndices.push_back(i1);
+                gridIndices.push_back(i2);
+                
+                gridIndices.push_back(i1);
+                gridIndices.push_back(i3);
+                gridIndices.push_back(i2);
+            }
+        }
+        
+        waterGridIndexCount = (int)gridIndices.size();
+        
+        glGenVertexArrays(1, &waterGridVAO);
+        glGenBuffers(1, &waterGridVBO);
+        glGenBuffers(1, &waterGridEBO);
+        
+        glBindVertexArray(waterGridVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, waterGridVBO);
+        glBufferData(GL_ARRAY_BUFFER, gridVertices.size() * sizeof(float), gridVertices.data(), GL_STATIC_DRAW);
+        
+        glBindBuffer(GL_ELEMENT_ARRAY_BUFFER, waterGridEBO);
+        glBufferData(GL_ELEMENT_ARRAY_BUFFER, gridIndices.size() * sizeof(unsigned int), gridIndices.data(), GL_STATIC_DRAW);
+        
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)0);
+        
+        glEnableVertexAttribArray(1);
+        glVertexAttribPointer(1, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(3 * sizeof(float)));
+        
+        glEnableVertexAttribArray(2);
+        glVertexAttribPointer(2, 2, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(6 * sizeof(float)));
+        
+        glEnableVertexAttribArray(3);
+        glVertexAttribPointer(3, 3, GL_FLOAT, GL_FALSE, 11 * sizeof(float), (void*)(8 * sizeof(float)));
+        
+        glBindVertexArray(0);
+    }
+
     quadVAO = 0;
 }
 
@@ -115,8 +220,9 @@ void Renderer::renderQuad() {
 
 // -----------------------------------------------------
 
-void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, float explosionFactor, float pSpread, float pSize, float pCount, bool multiView) {
+void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, float explosionFactor, float pSpread, float pSize, float pCount, float shadowBias, float pcfRadius, bool multiView, bool debugBuoyancy, int gbufferVisualisationMode) {
     // 0. Shadow Pass
+    glBeginQuery(GL_TIME_ELAPSED, queryShadow);
     glm::vec3 sP(5,10,5), pP(-2,2,1);
     for(const auto& e : scene->entities){ if(e.name=="Main Sun") sP=e.position; if(e.name=="Point Light") pP=e.position; }
 
@@ -154,6 +260,7 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
     advPointShadowShader->setFloat("tessLevel", tessLevel); advPointShadowShader->setFloat("explosionFactor", explosionFactor);
     renderEntitiesToGBuffer(advPointShadowShader, scene->entities, false);
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glEndQuery(GL_TIME_ELAPSED);
 
     struct VP { int x, y, w, h; glm::mat4 view; glm::mat4 proj; glm::vec3 pos; };
     std::vector<VP> viewports;
@@ -173,6 +280,7 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
     }
 
     // 1. Geometry Pass (G-Buffer)
+    glBeginQuery(GL_TIME_ELAPSED, queryGeometry);
     glBindFramebuffer(GL_FRAMEBUFFER, gBuffer);
     glClearColor(0.0f, 0.0f, 0.0f, 0.0f);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
@@ -191,13 +299,18 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
         renderEntitiesToGBuffer(advGbufferShader, scene->entities, useNormalMap);
     }
     glBindFramebuffer(GL_FRAMEBUFFER, 0);
+    glEndQuery(GL_TIME_ELAPSED);
 
     // 2. Deferred Lighting Pass
+    glBeginQuery(GL_TIME_ELAPSED, queryIBL);
     glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
     Shader* defLightShader = ResourceManager::getShader("deferred_lighting");
     defLightShader->use();
     defLightShader->setMat4("lightSpaceMatrix", lSpace);
     defLightShader->setFloat("far_plane", far_p);
+    defLightShader->setFloat("u_shadowBias", shadowBias);
+    defLightShader->setFloat("u_pcfRadius", pcfRadius);
+    defLightShader->setInt("u_visualisationMode", gbufferVisualisationMode);
 
     // Reset dirLight to zero so missing/invisible Main Sun doesn't retain old values
     defLightShader->setVec3("dirLight.color", glm::vec3(0.0f));
@@ -235,6 +348,7 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
         defLightShader->setVec3("viewPos", vp.pos);
         renderQuad();
     }
+    glEndQuery(GL_TIME_ELAPSED);
 
     // 3. Forward Pass (Depth blit + Transparents + Unlit items)
     glBindFramebuffer(GL_READ_FRAMEBUFFER, gBuffer);
@@ -250,6 +364,8 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
     for (const auto& vp : viewports) {
         glViewport(vp.x, vp.y, vp.w, vp.h);
         
+        bool isFirstViewport = (&vp == &viewports[0]);
+
         glDepthFunc(GL_LEQUAL); 
         skyboxShader->use();
         skyboxShader->setMat4("view", glm::mat4(glm::mat3(vp.view))); 
@@ -257,12 +373,39 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
         glBindVertexArray(skVAO); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_CUBE_MAP, ResourceManager::getTexture("skyboxMap")); glDrawArrays(GL_TRIANGLES, 0, 36);
         glDepthFunc(GL_LESS);
 
+        if (isFirstViewport) glBeginQuery(GL_TIME_ELAPSED, queryWater);
         glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         forwardWaterShader->use();
         forwardWaterShader->setMat4("projection", vp.proj);
         forwardWaterShader->setMat4("view", vp.view);
         forwardWaterShader->setVec3("viewPos", vp.pos);
         forwardWaterShader->setFloat("time", (float)glfwGetTime());
+        forwardWaterShader->setFloat("u_shadowBias", shadowBias);
+        forwardWaterShader->setFloat("u_pcfRadius", pcfRadius);
+        
+        // Pass 4 Gerstner Wave parameter uniforms
+        struct CPUWave {
+            glm::vec2 direction;
+            float amplitude;
+            float wavelength;
+            float speed;
+            float steepness;
+        };
+        const CPUWave waves[4] = {
+            { glm::vec2(1.0f, 0.2f),   0.15f, 6.0f, 1.8f, 0.4f },
+            { glm::vec2(-0.7f, 0.7f),  0.10f, 3.5f, 2.5f, 0.3f },
+            { glm::vec2(0.1f, 1.0f),   0.08f, 2.0f, 1.2f, 0.2f },
+            { glm::vec2(-0.3f, -0.9f), 0.04f, 1.2f, 0.8f, 0.1f }
+        };
+        for (int i = 0; i < 4; i++) {
+            std::string prefix = "waves[" + std::to_string(i) + "].";
+            forwardWaterShader->setVec2(prefix + "direction", waves[i].direction);
+            forwardWaterShader->setFloat(prefix + "amplitude", waves[i].amplitude);
+            forwardWaterShader->setFloat(prefix + "wavelength", waves[i].wavelength);
+            forwardWaterShader->setFloat(prefix + "speed", waves[i].speed);
+            forwardWaterShader->setFloat(prefix + "steepness", waves[i].steepness);
+        }
+
         // Reset water light uniforms to zero before the loop
         // so invisible/removed lights properly become dark
         forwardWaterShader->setVec3("light1.color", glm::vec3(0.0f));
@@ -294,16 +437,57 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
             forwardWaterShader->setMat4("model", e.getModelMatrix());
             forwardWaterShader->setFloat("roughness", e.roughness); forwardWaterShader->setFloat("metallic", e.metallic);
             forwardWaterShader->setFloat("material.ambientStrength", e.ambient); forwardWaterShader->setVec3("objectColor", e.color);
-            forwardWaterShader->setFloat("reflectivity", e.reflectivity); forwardWaterShader->setBool("isWater", true);
+            
+            // Animate water reflectivity with wave amplitude for spray at peaks
+            float peakFactor = 0.5f * (1.0f + glm::sin(3.0f * (float)glfwGetTime()));
+            forwardWaterShader->setFloat("reflectivity", e.reflectivity * (1.0f + 0.5f * peakFactor));
+            
+            forwardWaterShader->setBool("isWater", true);
             glm::mat4 texMat(1.0f); if(e.dynamicTexture) texMat=glm::translate(texMat, glm::vec3((float)glfwGetTime()*e.texSpeed, 0.0f, 0.0f));
             forwardWaterShader->setMat4("textureMatrix", texMat);
-            glBindVertexArray(floorVAO); 
-            glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, floorDiff); glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, waterNorm);
-            glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));      
-            glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("blackTex"));
-            glDrawArrays(GL_TRIANGLES, 0, 6);
+            
+            if (waterGridVAO != 0) {
+                glBindVertexArray(waterGridVAO); 
+                glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, floorDiff); glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, waterNorm);
+                glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));      
+                glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("blackTex"));
+                glDrawElements(GL_TRIANGLES, waterGridIndexCount, GL_UNSIGNED_INT, 0);
+            } else {
+                glBindVertexArray(floorVAO); 
+                glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, floorDiff); glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, waterNorm);
+                glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));      
+                glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("blackTex"));
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+            }
         }
 
+        // Draw Glass Tank walls transparently
+        forwardWaterShader->use();
+        for (const auto& e : scene->entities) {
+            if (!e.visible || (e.name != "Tank Bottom" && e.name != "Tank Left" && e.name != "Tank Right" && e.name != "Tank Back" && e.name != "Tank Front")) continue;
+            forwardWaterShader->setMat4("model", e.getModelMatrix());
+            forwardWaterShader->setFloat("roughness", e.roughness); 
+            forwardWaterShader->setFloat("metallic", e.metallic);
+            forwardWaterShader->setFloat("material.ambientStrength", e.ambient); 
+            forwardWaterShader->setVec3("objectColor", e.color);
+            forwardWaterShader->setFloat("reflectivity", e.reflectivity);
+            forwardWaterShader->setBool("isWater", false);
+            forwardWaterShader->setBool("useNormalMap", false);
+            glm::mat4 texMat(1.0f);
+            forwardWaterShader->setMat4("textureMatrix", texMat);
+
+            glBindVertexArray(cubeVAO);
+            glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); 
+            glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("flatNormalTex"));
+            glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); 
+            glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));      
+            glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); 
+            glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("blackTex"));
+            glDrawArrays(GL_TRIANGLES, 0, 36);
+        }
+        if (isFirstViewport) glEndQuery(GL_TIME_ELAPSED);
+
+        if (isFirstViewport) glBeginQuery(GL_TIME_ELAPSED, queryPost);
         unlitShader->use();
         unlitShader->setMat4("projection", vp.proj); unlitShader->setMat4("view", vp.view);
         for (const auto& e : scene->entities) {
@@ -317,7 +501,153 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
         particleShader->setMat4("projection", vp.proj); particleShader->setMat4("view", vp.view);
         renderParticles(particleShader, scene->entities, (float)glfwGetTime(), pSpread, pSize, pCount);
 
+        // 4. Buoyancy Debug Overlay (Wireframe & Force Arrows)
+        if (debugBuoyancy) {
+            // A. Draw Tank wireframe (10 x 5 x 10 centered at (0, 2.5, 0))
+            glm::vec3 c000(-5.0f, 0.0f, -5.0f), c100(5.0f, 0.0f, -5.0f), c101(5.0f, 0.0f, 5.0f), c001(-5.0f, 0.0f, 5.0f);
+            glm::vec3 c010(-5.0f, 5.0f, -5.0f), c110(5.0f, 5.0f, -5.0f), c111(5.0f, 5.0f, 5.0f), c011(-5.0f, 5.0f, 5.0f);
+            
+            glm::vec3 tankColor(1.0f, 0.84f, 0.0f); // Sleek gold for tank wireframe!
+            
+            // Bottom square
+            drawDebugLine(c000, c100, tankColor, vp.view, vp.proj);
+            drawDebugLine(c100, c101, tankColor, vp.view, vp.proj);
+            drawDebugLine(c101, c001, tankColor, vp.view, vp.proj);
+            drawDebugLine(c001, c000, tankColor, vp.view, vp.proj);
+            
+            // Top square
+            drawDebugLine(c010, c110, tankColor, vp.view, vp.proj);
+            drawDebugLine(c110, c111, tankColor, vp.view, vp.proj);
+            drawDebugLine(c111, c011, tankColor, vp.view, vp.proj);
+            drawDebugLine(c011, c010, tankColor, vp.view, vp.proj);
+            
+            // Vertical pillars
+            drawDebugLine(c000, c010, tankColor, vp.view, vp.proj);
+            drawDebugLine(c100, c110, tankColor, vp.view, vp.proj);
+            drawDebugLine(c101, c111, tankColor, vp.view, vp.proj);
+            drawDebugLine(c001, c011, tankColor, vp.view, vp.proj);
+
+            // B. Draw Buoyant Entities Wireframes and Force Arrows
+            for (const auto& e : scene->entities) {
+                if (!e.isBuoyant || !e.visible) continue;
+                
+                // Draw Wireframe on top of the shaded model
+                glPolygonMode(GL_FRONT_AND_BACK, GL_LINE);
+                unlitShader->use();
+                unlitShader->setMat4("projection", vp.proj);
+                unlitShader->setMat4("view", vp.view);
+                unlitShader->setMat4("model", e.getModelMatrix());
+                
+                // Wireframe color: interpolate Cyan -> Yellow -> Red based on floodLevel!
+                glm::vec3 wireColor;
+                if (e.floodLevel < 0.5f) {
+                    float t = e.floodLevel * 2.0f;
+                    wireColor = glm::mix(glm::vec3(0.0f, 1.0f, 1.0f), glm::vec3(1.0f, 1.0f, 0.0f), t);
+                } else {
+                    float t = (e.floodLevel - 0.5f) * 2.0f;
+                    wireColor = glm::mix(glm::vec3(1.0f, 1.0f, 0.0f), glm::vec3(1.0f, 0.2f, 0.2f), t);
+                }
+                unlitShader->setVec3("objectColor", wireColor);
+                
+                if (e.buoyancyType == 0) { // Sphere
+                    glBindVertexArray(sphereVAO);
+                    glDrawElements(GL_TRIANGLES, sphereCount, GL_UNSIGNED_INT, 0);
+                } else { // Cube (Slab or Open Box)
+                    glBindVertexArray(cubeVAO);
+                    glDrawArrays(GL_TRIANGLES, 0, 36);
+                }
+                glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
+
+                // Display floodLevel above the open box!
+                if (e.buoyancyType == 2) {
+                    float H = e.scale.y;
+                    glm::vec3 topCenterWorld = e.position + glm::vec3(0.0f, H * 0.5f + 0.35f, 0.0f);
+                    
+                    glm::vec4 clipPos = vp.proj * vp.view * glm::vec4(topCenterWorld, 1.0f);
+                    if (clipPos.w > 0.0f) {
+                        glm::vec3 ndcPos = glm::vec3(clipPos) / clipPos.w;
+                        float screenX = vp.x + (ndcPos.x * 0.5f + 0.5f) * vp.w;
+                        float screenY = vp.y + ((1.0f - ndcPos.y) * 0.5f + 0.5f) * vp.h;
+                        
+                        ImGui::SetNextWindowPos(ImVec2(screenX - 70.0f, screenY - 25.0f));
+                        ImGui::SetNextWindowSize(ImVec2(140.0f, 48.0f));
+                        ImGui::Begin(("##FloodWindow_" + e.name).c_str(), nullptr, 
+                            ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | 
+                            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | 
+                            ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
+                        
+                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(wireColor.x, wireColor.y, wireColor.z, 1.0f));
+                        ImGui::Text("Flood: %.1f%%", e.floodLevel * 100.0f);
+                        ImGui::PopStyleColor();
+                        
+                        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(wireColor.x, wireColor.y, wireColor.z, 1.0f));
+                        ImGui::ProgressBar(e.floodLevel, ImVec2(110.0f, 5.0f), "");
+                        ImGui::PopStyleColor();
+                        
+                        ImGui::End();
+                    }
+                }
+                
+                // C. Draw Force Arrows
+                float forceScale = 0.002f; 
+                
+                // Gravity Force (acts at CM e.position): red
+                glm::vec3 gravityVec(0.0f, -e.mass * 9.81f, 0.0f);
+                drawDebugArrow(e.position, e.position + gravityVec * forceScale, glm::vec3(1.0f, 0.0f, 0.0f), vp.view, vp.proj);
+                
+                // Buoyancy Force (acts at CB e.buoyancyCenter): blue
+                if (glm::length(e.buoyancyForce) > 0.001f) {
+                    drawDebugArrow(e.buoyancyCenter, e.buoyancyCenter + e.buoyancyForce * forceScale, glm::vec3(0.0f, 0.0f, 1.0f), vp.view, vp.proj);
+                }
+                
+                // Drag Force (acts at CM e.position): yellow
+                float Cd = 2.5f;
+                glm::vec3 dragForce = -(Cd * e.submergedFraction + 0.1f) * e.mass * e.velocity;
+                if (glm::length(dragForce) > 0.001f) {
+                    drawDebugArrow(e.position, e.position + dragForce * forceScale, glm::vec3(1.0f, 1.0f, 0.0f), vp.view, vp.proj);
+                }
+                
+                // Lever arm connection (thin line between CM and CB): gray
+                drawDebugLine(e.position, e.buoyancyCenter, glm::vec3(0.5f, 0.5f, 0.5f), vp.view, vp.proj);
+            }
+        }
+        if (isFirstViewport) glEndQuery(GL_TIME_ELAPSED);
+
         glDisable(GL_BLEND);
+    }
+
+    // Retrieve query results asynchronously to prevent CPU-GPU pipeline stall
+    GLuint64 timeNs = 0;
+    GLint available = 0;
+
+    glGetQueryObjectiv(queryShadow, GL_QUERY_RESULT_AVAILABLE, &available);
+    if (available) {
+        glGetQueryObjectui64v(queryShadow, GL_QUERY_RESULT, &timeNs);
+        timeShadow = timeNs / 1000000.0f;
+    }
+
+    glGetQueryObjectiv(queryGeometry, GL_QUERY_RESULT_AVAILABLE, &available);
+    if (available) {
+        glGetQueryObjectui64v(queryGeometry, GL_QUERY_RESULT, &timeNs);
+        timeGeometry = timeNs / 1000000.0f;
+    }
+
+    glGetQueryObjectiv(queryIBL, GL_QUERY_RESULT_AVAILABLE, &available);
+    if (available) {
+        glGetQueryObjectui64v(queryIBL, GL_QUERY_RESULT, &timeNs);
+        timeIBL = timeNs / 1000000.0f;
+    }
+
+    glGetQueryObjectiv(queryWater, GL_QUERY_RESULT_AVAILABLE, &available);
+    if (available) {
+        glGetQueryObjectui64v(queryWater, GL_QUERY_RESULT, &timeNs);
+        timeWater = timeNs / 1000000.0f;
+    }
+
+    glGetQueryObjectiv(queryPost, GL_QUERY_RESULT_AVAILABLE, &available);
+    if (available) {
+        glGetQueryObjectui64v(queryPost, GL_QUERY_RESULT, &timeNs);
+        timePost = timeNs / 1000000.0f;
     }
 }
 
@@ -329,7 +659,8 @@ void Renderer::renderEntitiesToGBuffer(Shader* shader, const std::vector<Entity>
     unsigned int blackTex = ResourceManager::getTexture("blackTex");
 
     for (const auto& e : entities) {
-        if (!e.visible || e.type == WATER || e.type == PARTICLE || e.isLight) continue;
+        if (!e.visible || e.type == WATER || e.type == PARTICLE || e.isLight || 
+            e.name == "Tank Bottom" || e.name == "Tank Left" || e.name == "Tank Right" || e.name == "Tank Back" || e.name == "Tank Front") continue;
         
         if (shader->hasTessellation) { if (e.type != ADV_SPHERE) continue; }
         else { if (e.type == ADV_SPHERE || e.name == "Particle Source") continue; }
@@ -363,7 +694,44 @@ void Renderer::renderEntitiesToGBuffer(Shader* shader, const std::vector<Entity>
             glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("texDiff"));
             glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("texNorm"));
             glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("texSpec")); 
-            glDrawArrays(GL_TRIANGLES, 0, 36);
+            
+            if (e.buoyancyType == 2) {
+                // Hollow open-top box rendering: Draw 5 walls in local space
+                float t = 0.05f; // Wall thickness (5% of scale)
+                glm::mat4 baseModel = e.getModelMatrix();
+                
+                // 1. Bottom floor
+                glm::mat4 m1 = glm::translate(baseModel, glm::vec3(0.0f, -0.5f + t * 0.5f, 0.0f));
+                m1 = glm::scale(m1, glm::vec3(1.0f, t, 1.0f));
+                shader->setMat4("model", m1);
+                glDrawArrays(GL_TRIANGLES, 0, 36);
+                
+                // 2. Left Wall (-X)
+                glm::mat4 m2 = glm::translate(baseModel, glm::vec3(-0.5f + t * 0.5f, t * 0.5f, 0.0f));
+                m2 = glm::scale(m2, glm::vec3(t, 1.0f - t, 1.0f));
+                shader->setMat4("model", m2);
+                glDrawArrays(GL_TRIANGLES, 0, 36);
+                
+                // 3. Right Wall (+X)
+                glm::mat4 m3 = glm::translate(baseModel, glm::vec3(0.5f - t * 0.5f, t * 0.5f, 0.0f));
+                m3 = glm::scale(m3, glm::vec3(t, 1.0f - t, 1.0f));
+                shader->setMat4("model", m3);
+                glDrawArrays(GL_TRIANGLES, 0, 36);
+                
+                // 4. Back Wall (-Z)
+                glm::mat4 m4 = glm::translate(baseModel, glm::vec3(0.0f, t * 0.5f, -0.5f + t * 0.5f));
+                m4 = glm::scale(m4, glm::vec3(1.0f - 2.0f * t, 1.0f - t, t));
+                shader->setMat4("model", m4);
+                glDrawArrays(GL_TRIANGLES, 0, 36);
+                
+                // 5. Front Wall (+Z)
+                glm::mat4 m5 = glm::translate(baseModel, glm::vec3(0.0f, t * 0.5f, 0.5f - t * 0.5f));
+                m5 = glm::scale(m5, glm::vec3(1.0f - 2.0f * t, 1.0f - t, t));
+                shader->setMat4("model", m5);
+                glDrawArrays(GL_TRIANGLES, 0, 36);
+            } else {
+                glDrawArrays(GL_TRIANGLES, 0, 36);
+            }
         } else if (e.type == SPHERE || e.type == ICOSAHEDRON) {
             unsigned int vao = (e.type == SPHERE) ? sphereVAO : icoVAO;
             int count = (e.type == SPHERE) ? sphereCount : icoCount;
@@ -401,4 +769,60 @@ void Renderer::renderParticles(Shader* shader, const std::vector<Entity>& entiti
         }
     }
     glDepthMask(GL_TRUE); glDisable(GL_BLEND);
+}
+
+void Renderer::drawDebugLine(glm::vec3 start, glm::vec3 end, glm::vec3 color, glm::mat4 view, glm::mat4 proj) {
+    static unsigned int lineVAO = 0, lineVBO = 0;
+    if (lineVAO == 0) {
+        glGenVertexArrays(1, &lineVAO);
+        glGenBuffers(1, &lineVBO);
+        glBindVertexArray(lineVAO);
+        glBindBuffer(GL_ARRAY_BUFFER, lineVBO);
+        glBufferData(GL_ARRAY_BUFFER, 2 * 3 * sizeof(float), NULL, GL_DYNAMIC_DRAW);
+        glEnableVertexAttribArray(0);
+        glVertexAttribPointer(0, 3, GL_FLOAT, GL_FALSE, 3 * sizeof(float), (void*)0);
+        glBindVertexArray(0);
+    }
+    
+    float vertices[] = {
+        start.x, start.y, start.z,
+        end.x, end.y, end.z
+    };
+    
+    glBindVertexArray(lineVAO);
+    glBindBuffer(GL_ARRAY_BUFFER, lineVBO);
+    glBufferSubData(GL_ARRAY_BUFFER, 0, sizeof(vertices), vertices);
+    
+    Shader* debugLineShader = ResourceManager::getShader("debugLine");
+    if (debugLineShader) {
+        debugLineShader->use();
+        debugLineShader->setMat4("view", view);
+        debugLineShader->setMat4("projection", proj);
+        debugLineShader->setVec3("objectColor", color);
+        glDrawArrays(GL_LINES, 0, 2);
+    }
+    glBindVertexArray(0);
+}
+
+void Renderer::drawDebugArrow(glm::vec3 start, glm::vec3 end, glm::vec3 color, glm::mat4 view, glm::mat4 proj) {
+    drawDebugLine(start, end, color, view, proj);
+    
+    glm::vec3 dir = end - start;
+    float len = glm::length(dir);
+    if (len < 0.001f) return;
+    dir /= len;
+    
+    glm::vec3 right = (glm::abs(dir.y) > 0.99f) ? glm::vec3(1, 0, 0) : glm::normalize(glm::cross(dir, glm::vec3(0, 1, 0)));
+    glm::vec3 up = glm::normalize(glm::cross(right, dir));
+    
+    float arrowSize = glm::min(0.2f, len * 0.2f);
+    glm::vec3 p1 = end - dir * arrowSize + right * (arrowSize * 0.5f);
+    glm::vec3 p2 = end - dir * arrowSize - right * (arrowSize * 0.5f);
+    glm::vec3 p3 = end - dir * arrowSize + up * (arrowSize * 0.5f);
+    glm::vec3 p4 = end - dir * arrowSize - up * (arrowSize * 0.5f);
+    
+    drawDebugLine(end, p1, color, view, proj);
+    drawDebugLine(end, p2, color, view, proj);
+    drawDebugLine(end, p3, color, view, proj);
+    drawDebugLine(end, p4, color, view, proj);
 }

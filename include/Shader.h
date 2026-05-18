@@ -16,6 +16,35 @@ public:
     bool hasTessellation;
 
     // constructor generates the shader on the fly
+    Shader(const char* computePath) {
+        hasTessellation = false;
+        std::string computeCode;
+        std::ifstream file;
+        file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+        try {
+            file.open(computePath);
+            std::stringstream stream;
+            stream << file.rdbuf();
+            file.close();
+            computeCode = stream.str();
+        } catch (std::ifstream::failure& e) {
+            std::cout << "ERROR::SHADER::COMPUTE::FILE_NOT_SUCCESSFULLY_READ: " << computePath << " " << e.what() << std::endl;
+        }
+
+        const char* cCode = computeCode.c_str();
+        unsigned int compute = glCreateShader(GL_COMPUTE_SHADER);
+        glShaderSource(compute, 1, &cCode, NULL);
+        glCompileShader(compute);
+        checkCompileErrors(compute, "COMPUTE");
+
+        ID = glCreateProgram();
+        glAttachShader(ID, compute);
+        glLinkProgram(ID);
+        checkCompileErrors(ID, "PROGRAM");
+
+        glDeleteShader(compute);
+    }
+
     Shader(const char* vertexPath, const char* fragmentPath, const char* geometryPath = nullptr, const char* tessControlPath = nullptr, const char* tessEvalPath = nullptr) {
         hasTessellation = (tessControlPath != nullptr || tessEvalPath != nullptr);
         // 1. retrieve the vertex/fragment source code from filePath
@@ -98,6 +127,9 @@ public:
     }
     void setVec3(const std::string& name, const glm::vec3& value) const {
         glUniform3fv(glGetUniformLocation(ID, name.c_str()), 1, glm::value_ptr(value));
+    }
+    void setVec2(const std::string& name, const glm::vec2& value) const {
+        glUniform2fv(glGetUniformLocation(ID, name.c_str()), 1, glm::value_ptr(value));
     }
 
 private:

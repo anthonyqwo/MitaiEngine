@@ -4,7 +4,7 @@
 int main() {
     Application app;
     if (app.init()) {
-        app.loadWorldScene();
+        app.loadBuoyancyScene(3);
         app.run();
     } else {
         std::cerr << "Failed to initialize game engine application." << std::endl;

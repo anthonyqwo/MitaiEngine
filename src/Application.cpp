@@ -35,12 +35,14 @@ Application::Application() {
     firstMouse = true;
 
     useNormalMap = true;
-    light2Moving = true;
+    light2Moving = false;
     tessLevel = 4.0f;
     explosionFactor = 0.0f;
     pSpread = 2.0f; 
     pSize = 0.4f; 
     pCount = 256.0f;
+    shadowBias = 0.005f;
+    pcfRadius = 1.5f;
     selectedEntityIndex = -1;
 }
 
@@ -87,6 +89,7 @@ void Application::setupResources() {
     
     ResourceManager::loadShader("shaders/vertex.glsl", "shaders/forward_water_f.glsl", nullptr, nullptr, nullptr, "forward_water");
     ResourceManager::loadShader("shaders/vertex.glsl", "shaders/unlit_f.glsl", nullptr, nullptr, nullptr, "unlit");
+    ResourceManager::loadComputeShader("shaders/wave_query.glsl", "waveQuery");
     
     ResourceManager::loadShader("shaders/skybox_v.glsl", "shaders/skybox_f.glsl", nullptr, nullptr, nullptr, "skybox");
     ResourceManager::loadShader("shaders/shadow_v.glsl", "shaders/shadow_f.glsl", nullptr, nullptr, nullptr, "shadow");
@@ -94,6 +97,7 @@ void Application::setupResources() {
     ResourceManager::loadShader("shaders/particle_v.glsl", "shaders/particle_f.glsl", "shaders/particle_g.glsl", "shaders/particle_tc.glsl", "shaders/particle_te.glsl", "particle");
     ResourceManager::loadShader("shaders/adv_v.glsl", "shaders/shadow_f.glsl", "shaders/adv_g.glsl", "shaders/adv_tc.glsl", "shaders/adv_te.glsl", "advShadow");
     ResourceManager::loadShader("shaders/adv_v.glsl", "shaders/point_shadow_f.glsl", "shaders/adv_point_shadow_g.glsl", "shaders/adv_tc.glsl", "shaders/adv_te.glsl", "advPointShadow");
+    ResourceManager::loadShader("shaders/debug_line_v.glsl", "shaders/debug_line_f.glsl", nullptr, nullptr, nullptr, "debugLine");
 
     ResourceManager::loadTexture("assets/container.jpg", "texDiff");
     ResourceManager::loadTexture("assets/container_specular.png", "texSpec");
@@ -410,6 +414,148 @@ void Application::loadWorldScene() {
     scene->addEntity(fenceRail);
 }
 
+void Application::loadBuoyancyScene(int scenario) {
+    physicsSystem->reset();
+    scene->entities.clear();
+    selectedEntityIndex = -1;
+    isCollisionDemo = false;
+    isBuoyancyScene = true;
+    currentScenario = scenario;
+
+    // 1. Camera setup: look down at the buoyancy tank
+    scene->camera.Position = glm::vec3(0.0f, 7.5f, 11.5f);
+    scene->camera.Pitch = -30.0f;
+    scene->camera.Yaw = -90.0f;
+    scene->camera.ProcessMouseMovement(0, 0);
+
+    // 2. Spawn Glass Tank bottom and walls (10x10x5m, centered at (0, 2.5, 0))
+    // Bottom
+    Entity tankBottom("Tank Bottom", CUBE, glm::vec3(0.0f, -0.05f, 0.0f), glm::vec3(0.85f, 0.95f, 1.0f));
+    tankBottom.scale = glm::vec3(10.2f, 0.1f, 10.2f);
+    tankBottom.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    tankBottom.mass = 0.0f;
+    tankBottom.roughness = 0.02f; tankBottom.metallic = 0.0f; tankBottom.reflectivity = 0.8f;
+    scene->addEntity(tankBottom);
+
+    // Left Wall
+    Entity tankLeft("Tank Left", CUBE, glm::vec3(-5.05f, 2.5f, 0.0f), glm::vec3(0.85f, 0.95f, 1.0f));
+    tankLeft.scale = glm::vec3(0.1f, 5.0f, 10.2f);
+    tankLeft.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    tankLeft.mass = 0.0f;
+    tankLeft.roughness = 0.02f; tankLeft.metallic = 0.0f; tankLeft.reflectivity = 0.8f;
+    scene->addEntity(tankLeft);
+
+    // Right Wall
+    Entity tankRight("Tank Right", CUBE, glm::vec3(5.05f, 2.5f, 0.0f), glm::vec3(0.85f, 0.95f, 1.0f));
+    tankRight.scale = glm::vec3(0.1f, 5.0f, 10.2f);
+    tankRight.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    tankRight.mass = 0.0f;
+    tankRight.roughness = 0.02f; tankRight.metallic = 0.0f; tankRight.reflectivity = 0.8f;
+    scene->addEntity(tankRight);
+
+    // Back Wall
+    Entity tankBack("Tank Back", CUBE, glm::vec3(0.0f, 2.5f, -5.05f), glm::vec3(0.85f, 0.95f, 1.0f));
+    tankBack.scale = glm::vec3(10.0f, 5.0f, 0.1f);
+    tankBack.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    tankBack.mass = 0.0f;
+    tankBack.roughness = 0.02f; tankBack.metallic = 0.0f; tankBack.reflectivity = 0.8f;
+    scene->addEntity(tankBack);
+
+    // Front Wall
+    Entity tankFront("Tank Front", CUBE, glm::vec3(0.0f, 2.5f, 5.05f), glm::vec3(0.85f, 0.95f, 1.0f));
+    tankFront.scale = glm::vec3(10.0f, 5.0f, 0.1f);
+    tankFront.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    tankFront.mass = 0.0f;
+    tankFront.roughness = 0.02f; tankFront.metallic = 0.0f; tankFront.reflectivity = 0.8f;
+    scene->addEntity(tankFront);
+
+    // 3. Spawn Water plane (y = 4.0m)
+    Entity waterEntity("Water Surface", WATER, glm::vec3(0.0f, 4.0f, 0.0f), glm::vec3(0.0f, 0.4f, 0.8f));
+    waterEntity.roughness = 0.05f; waterEntity.reflectivity = 0.6f; waterEntity.metallic = 0.1f;
+    waterEntity.ambient = 1.0f;
+    waterEntity.scale = glm::vec3(10.0f / 14.0f, 1.0f, 10.0f / 14.0f);
+    waterEntity.hasCollision = false;
+    scene->addEntity(waterEntity);
+
+    // 4. Spawn Lights (Main Sun and Point Light)
+    Entity sunEnt("Main Sun", CUBE, glm::vec3(8.0f, 12.0f, 8.0f), glm::vec3(1.0f, 0.95f, 0.8f));
+    sunEnt.isLight = true; sunEnt.lightColor = glm::vec3(1.0f, 0.95f, 0.8f);
+    sunEnt.lightIntensity = 6.0f; sunEnt.scale = glm::vec3(0.3f);
+    sunEnt.hasCollision = false;
+    scene->addEntity(sunEnt);
+
+    Entity lampEnt("Point Light", CUBE, glm::vec3(-3.0f, 6.0f, 3.0f), glm::vec3(1.0f, 0.6f, 0.2f));
+    lampEnt.isLight = true; lampEnt.lightColor = glm::vec3(1.0f, 0.6f, 0.2f);
+    lampEnt.lightIntensity = 3.0f; lampEnt.scale = glm::vec3(0.2f);
+    lampEnt.hasCollision = false;
+    scene->addEntity(lampEnt);
+
+    // 5. Spawn Buoyant Entities based on Scenario A/B/C/D
+    if (scenario == 0 || scenario == 3) { // Hollow Sphere (Scenario A or D)
+        glm::vec3 pos = (scenario == 3) ? glm::vec3(-2.0f, 6.0f, 0.0f) : glm::vec3(0.0f, 6.0f, 0.0f);
+        Entity sphereEnt("Hollow Sphere", SPHERE, pos, glm::vec3(0.8f, 0.85f, 0.9f));
+        sphereEnt.scale = glm::vec3(0.5f); // radius = 0.5m
+        sphereEnt.localBounds = AABB(glm::vec3(-1.0f), glm::vec3(1.0f));
+        sphereEnt.roughness = 0.1f; sphereEnt.metallic = 0.9f; sphereEnt.reflectivity = 0.8f; sphereEnt.ambient = 1.0f;
+        
+        sphereEnt.isBuoyant = true;
+        sphereEnt.buoyancyType = 0; // Sphere
+        sphereEnt.mass = 157.08f;
+        sphereEnt.radius = 0.5f;
+        sphereEnt.orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+        
+        scene->addEntity(sphereEnt);
+    }
+    if (scenario == 1 || scenario == 3) { // Wooden Slab (Scenario B or D)
+        glm::vec3 pos = (scenario == 3) ? glm::vec3(0.0f, 5.0f, 0.0f) : glm::vec3(0.0f, 5.0f, 0.0f);
+        Entity slabEnt("Wooden Slab", CUBE, pos, glm::vec3(0.65f, 0.45f, 0.25f));
+        slabEnt.scale = glm::vec3(1.0f, 0.3f, 1.0f);
+        slabEnt.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+        slabEnt.roughness = 0.8f; slabEnt.metallic = 0.0f; slabEnt.reflectivity = 0.05f; slabEnt.ambient = 1.0f;
+        
+        slabEnt.isBuoyant = true;
+        slabEnt.buoyancyType = 1; // Slab
+        slabEnt.mass = 120.0f;
+        // Initial Tilt
+        slabEnt.rotation = glm::vec3(30.0f, 0.0f, 15.0f);
+        slabEnt.orientation = glm::quat(glm::radians(slabEnt.rotation));
+        
+        scene->addEntity(slabEnt);
+    }
+    if (scenario == 2 || scenario == 3) { // Open-top Box (Scenario C or D)
+        glm::vec3 pos = (scenario == 3) ? glm::vec3(2.0f, 4.15f, 0.0f) : glm::vec3(0.0f, 4.15f, 0.0f);
+        Entity boxEnt("Open Box", CUBE, pos, glm::vec3(0.85f, 0.65f, 0.15f));
+        boxEnt.scale = glm::vec3(1.2f, 0.6f, 1.2f);
+        boxEnt.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+        boxEnt.roughness = 0.2f; boxEnt.metallic = 0.95f; boxEnt.reflectivity = 0.7f; boxEnt.ambient = 1.0f;
+        
+        boxEnt.isBuoyant = true;
+        boxEnt.buoyancyType = 2; // Open-top box
+        boxEnt.mass = 150.0f;
+        boxEnt.orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
+        
+        scene->addEntity(boxEnt);
+
+        // Spawn Cargo inside the Open Box!
+        // Random horizontal offset within the inner compartment
+        float rx = ((rand() % 200) / 100.0f - 1.0f) * 0.20f; // [-0.20, 0.20]
+        float rz = ((rand() % 200) / 100.0f - 1.0f) * 0.20f; // [-0.20, 0.20]
+        glm::vec3 localOffset(rx, -0.12f, rz); // Sitting perfectly on the bottom floor (Y = -0.12)
+        
+        Entity cargoEnt("Box Cargo", CUBE, pos + localOffset, glm::vec3(0.45f, 0.45f, 0.5f));
+        cargoEnt.scale = glm::vec3(0.3f); // Small heavy metal block
+        cargoEnt.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+        cargoEnt.roughness = 0.1f; cargoEnt.metallic = 0.95f; cargoEnt.reflectivity = 0.5f; cargoEnt.ambient = 1.0f;
+        
+        cargoEnt.isCargo = true;
+        cargoEnt.cargoLocalOffset = localOffset;
+        cargoEnt.mass = 100.0f; // Initial cargo mass
+        cargoEnt.hasCollision = false; // No separate collision
+        
+        scene->addEntity(cargoEnt);
+    }
+}
+
 
 void Application::processInput() {
     if (glfwGetKey(window, GLFW_KEY_ESCAPE) == GLFW_PRESS) glfwSetWindowShouldClose(window, true);
@@ -421,6 +567,65 @@ void Application::processInput() {
         tabP = true; 
     } else if (glfwGetKey(window, GLFW_KEY_TAB) == GLFW_RELEASE) {
         tabP = false;
+    }
+
+    // Buoyancy Scenario Keyboard Triggers (1, 2, 3, 4)
+    if (!cursorDisabled) {
+        static bool key1P = false;
+        if (glfwGetKey(window, GLFW_KEY_1) == GLFW_PRESS && !key1P) {
+            loadBuoyancyScene(0);
+            key1P = true;
+        } else if (glfwGetKey(window, GLFW_KEY_1) == GLFW_RELEASE) {
+            key1P = false;
+        }
+
+        static bool key2P = false;
+        if (glfwGetKey(window, GLFW_KEY_2) == GLFW_PRESS && !key2P) {
+            loadBuoyancyScene(1);
+            key2P = true;
+        } else if (glfwGetKey(window, GLFW_KEY_2) == GLFW_RELEASE) {
+            key2P = false;
+        }
+
+        static bool key3P = false;
+        if (glfwGetKey(window, GLFW_KEY_3) == GLFW_PRESS && !key3P) {
+            loadBuoyancyScene(2);
+            key3P = true;
+        } else if (glfwGetKey(window, GLFW_KEY_3) == GLFW_RELEASE) {
+            key3P = false;
+        }
+
+        static bool key4P = false;
+        if (glfwGetKey(window, GLFW_KEY_4) == GLFW_PRESS && !key4P) {
+            loadBuoyancyScene(3);
+            key4P = true;
+        } else if (glfwGetKey(window, GLFW_KEY_4) == GLFW_RELEASE) {
+            key4P = false;
+        }
+    }
+
+    static bool keyF1P = false;
+    if (glfwGetKey(window, GLFW_KEY_F1) == GLFW_PRESS && !keyF1P) {
+        debugBuoyancy = !debugBuoyancy;
+        keyF1P = true;
+    } else if (glfwGetKey(window, GLFW_KEY_F1) == GLFW_RELEASE) {
+        keyF1P = false;
+    }
+
+    static bool keyF2P = false;
+    if (glfwGetKey(window, GLFW_KEY_F2) == GLFW_PRESS && !keyF2P) {
+        showProfilingOverlay = !showProfilingOverlay;
+        keyF2P = true;
+    } else if (glfwGetKey(window, GLFW_KEY_F2) == GLFW_RELEASE) {
+        keyF2P = false;
+    }
+
+    static bool keyF3P = false;
+    if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_PRESS && !keyF3P) {
+        gbufferVisualisationMode = (gbufferVisualisationMode + 1) % 6;
+        keyF3P = true;
+    } else if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_RELEASE) {
+        keyF3P = false;
     }
     
     if (cursorDisabled) { 
@@ -439,10 +644,198 @@ void Application::processInput() {
         
         scene->processCollisions(movement);
     }
+
+    // 3D Mouse Grabbing & Viewport Drag Plane Controller
+    if (!cursorDisabled) {
+        static bool lastMousePressed = false;
+        bool mousePressed = glfwGetMouseButton(window, GLFW_MOUSE_BUTTON_LEFT) == GLFW_PRESS;
+        
+        static glm::vec3 dragPlanePoint = glm::vec3(0.0f);
+        static glm::vec3 dragPlaneNormal = glm::vec3(0.0f);
+        
+        if (mousePressed && !ImGui::GetIO().WantCaptureMouse) {
+            bool grabbing = false;
+            for (auto& entity : scene->entities) {
+                if (entity.isGrabbed) {
+                    grabbing = true;
+                    break;
+                }
+            }
+            
+            if (!grabbing && !lastMousePressed) {
+                // Initial press: cast screen ray
+                double xpos, ypos;
+                glfwGetCursorPos(window, &xpos, &ypos);
+                int width, height;
+                glfwGetWindowSize(window, &width, &height);
+
+                float x_ndc = (2.0f * (float)xpos) / (float)width - 1.0f;
+                float y_ndc = 1.0f - (2.0f * (float)ypos) / (float)height;
+
+                glm::mat4 projection = glm::perspective(glm::radians(scene->camera.Zoom), (float)width / (float)height, 0.1f, 100.0f);
+                glm::mat4 view = scene->camera.GetViewMatrix();
+
+                glm::vec4 ray_clip = glm::vec4(x_ndc, y_ndc, -1.0f, 1.0f);
+                glm::vec4 ray_eye = glm::inverse(projection) * ray_clip;
+                ray_eye = glm::vec4(ray_eye.x, ray_eye.y, -1.0f, 0.0f);
+
+                glm::vec3 ray_world = glm::normalize(glm::vec3(glm::inverse(view) * ray_eye));
+                glm::vec3 ray_origin = scene->camera.Position;
+                
+                float closestT = 1e9f;
+                Entity* closestEntity = nullptr;
+                glm::vec3 closestHitPoint = glm::vec3(0.0f);
+                
+                for (auto& entity : scene->entities) {
+                    if (entity.isBuoyant || entity.isCargo) {
+                        float tHit = 0.0f;
+                        glm::vec3 hitPoint = glm::vec3(0.0f);
+                        
+                        glm::mat4 modelMat = entity.getModelMatrix();
+                        glm::mat4 invModel = glm::inverse(modelMat);
+
+                        glm::vec3 oLocal = glm::vec3(invModel * glm::vec4(ray_origin, 1.0f));
+                        // Normalize local direction to prevent non-uniform scaling OBB distortion
+                        glm::vec3 dLocal = glm::normalize(glm::vec3(invModel * glm::vec4(ray_world, 0.0f)));
+
+                        glm::vec3 minLocal = entity.localBounds.minExtents;
+                        glm::vec3 maxLocal = entity.localBounds.maxExtents;
+
+                        float tMin = -1e9f;
+                        float tMax = 1e9f;
+                        bool intersect = true;
+
+                        for (int i = 0; i < 3; ++i) {
+                            if (glm::abs(dLocal[i]) < 1e-6f) {
+                                if (oLocal[i] < minLocal[i] || oLocal[i] > maxLocal[i]) {
+                                    intersect = false;
+                                    break;
+                                }
+                            } else {
+                                float t1 = (minLocal[i] - oLocal[i]) / dLocal[i];
+                                float t2 = (maxLocal[i] - oLocal[i]) / dLocal[i];
+                                if (t1 > t2) std::swap(t1, t2);
+                                tMin = (glm::max)(tMin, t1);
+                                tMax = (glm::min)(tMax, t2);
+                            }
+                        }
+
+                        if (intersect && tMax >= tMin && tMax > 0.0f) {
+                            // Support ray origin inside the OBB box (tMin is negative)
+                            float actualT = (tMin < 0.0f) ? tMax : tMin;
+                            if (actualT > 0.0f && actualT < closestT) {
+                                closestT = actualT;
+                                closestEntity = &entity;
+                                closestHitPoint = glm::vec3(modelMat * glm::vec4(oLocal + actualT * dLocal, 1.0f));
+                            }
+                        }
+                    }
+                }
+                
+                if (closestEntity) {
+                    closestEntity->isGrabbed = true;
+                    // Compute local grab offset offset relative to the body orientation
+                    closestEntity->localGrabOffset = glm::transpose(glm::mat3_cast(closestEntity->orientation)) * (closestHitPoint - closestEntity->position);
+                    closestEntity->targetGrabWorld = closestHitPoint;
+                    
+                    // Anchor camera-aligned virtual drag plane at initial intersection point
+                    dragPlanePoint = closestHitPoint;
+                    dragPlaneNormal = scene->camera.Front; 
+                }
+            }
+            
+            // Continuous Dragging Phase: Project cursor onto the virtual drag plane
+            for (auto& entity : scene->entities) {
+                if (entity.isGrabbed) {
+                    double xpos, ypos;
+                    glfwGetCursorPos(window, &xpos, &ypos);
+                    int width, height;
+                    glfwGetWindowSize(window, &width, &height);
+
+                    float x_ndc = (2.0f * (float)xpos) / (float)width - 1.0f;
+                    float y_ndc = 1.0f - (2.0f * (float)ypos) / (float)height;
+
+                    glm::mat4 projection = glm::perspective(glm::radians(scene->camera.Zoom), (float)width / (float)height, 0.1f, 100.0f);
+                    glm::mat4 view = scene->camera.GetViewMatrix();
+
+                    glm::vec4 ray_clip = glm::vec4(x_ndc, y_ndc, -1.0f, 1.0f);
+                    glm::vec4 ray_eye = glm::inverse(projection) * ray_clip;
+                    ray_eye = glm::vec4(ray_eye.x, ray_eye.y, -1.0f, 0.0f);
+
+                    glm::vec3 ray_world = glm::normalize(glm::vec3(glm::inverse(view) * ray_eye));
+                    glm::vec3 ray_origin = scene->camera.Position;
+                    
+                    // Ray-Plane Intersection: t = (PlanePoint - RayOrigin) . Normal / RayDir . Normal
+                    float denom = glm::dot(ray_world, dragPlaneNormal);
+                    if (glm::abs(denom) > 1e-6f) {
+                        float tDrag = glm::dot(dragPlanePoint - ray_origin, dragPlaneNormal) / denom;
+                        if (tDrag > 0.0f) {
+                            entity.targetGrabWorld = ray_origin + tDrag * ray_world;
+                        }
+                    }
+                }
+            }
+            
+            lastMousePressed = true;
+        } else {
+            // Release spring constraint
+            for (auto& entity : scene->entities) {
+                entity.isGrabbed = false;
+            }
+            lastMousePressed = false;
+        }
+    }
 }
 
 void Application::renderImGui() {
     ImGui_ImplOpenGL3_NewFrame(); ImGui_ImplGlfw_NewFrame(); ImGui::NewFrame();
+
+    // Draw continuous flooding overlay above the open box!
+    if (debugBuoyancy) {
+        for (const auto& e : scene->entities) {
+            if (e.isBuoyant && e.buoyancyType == 2 && e.visible) {
+                float H = e.scale.y;
+                glm::vec3 topCenterWorld = e.position + glm::vec3(0.0f, H * 0.5f + 0.35f, 0.0f);
+                
+                glm::mat4 view = scene->camera.GetViewMatrix();
+                glm::mat4 proj = glm::perspective(glm::radians(scene->camera.Zoom), (float)SCR_WIDTH / (float)SCR_HEIGHT, 0.1f, 500.0f);
+                glm::vec4 clipPos = proj * view * glm::vec4(topCenterWorld, 1.0f);
+                
+                if (clipPos.w > 0.0f) {
+                    glm::vec3 ndcPos = glm::vec3(clipPos) / clipPos.w;
+                    float screenX = (ndcPos.x * 0.5f + 0.5f) * SCR_WIDTH;
+                    float screenY = ((1.0f - ndcPos.y) * 0.5f + 0.5f) * SCR_HEIGHT;
+                    
+                    ImGui::SetNextWindowPos(ImVec2(screenX - 70.0f, screenY - 25.0f));
+                    ImGui::SetNextWindowSize(ImVec2(140.0f, 48.0f));
+                    ImGui::Begin(("##FloodWindow_" + e.name).c_str(), nullptr, 
+                        ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | 
+                        ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | 
+                        ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
+                    
+                    glm::vec3 colorVal;
+                    if (e.floodLevel < 0.5f) {
+                        float t = e.floodLevel * 2.0f;
+                        colorVal = glm::mix(glm::vec3(0.0f, 1.0f, 1.0f), glm::vec3(1.0f, 1.0f, 0.0f), t);
+                    } else {
+                        float t = (e.floodLevel - 0.5f) * 2.0f;
+                        colorVal = glm::mix(glm::vec3(1.0f, 1.0f, 0.0f), glm::vec3(1.0f, 0.2f, 0.2f), t);
+                    }
+                    
+                    ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(colorVal.x, colorVal.y, colorVal.z, 1.0f));
+                    ImGui::Text("Flood: %.1f%%", e.floodLevel * 100.0f);
+                    ImGui::PopStyleColor();
+                    
+                    ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(colorVal.x, colorVal.y, colorVal.z, 1.0f));
+                    ImGui::ProgressBar(e.floodLevel, ImVec2(110.0f, 5.0f), "");
+                    ImGui::PopStyleColor();
+                    
+                    ImGui::End();
+                }
+            }
+        }
+    }
+
     { ImGui::Begin("Scene Hierarchy");
       if (ImGui::Button("Add Cube")) { Entity e("New Cube", CUBE, scene->camera.Position + scene->camera.Front*2.0f); e.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f)); scene->addEntity(e); }
       ImGui::SameLine(); if (ImGui::Button("Add Sphere")) { Entity e("New Sphere", SPHERE, scene->camera.Position + scene->camera.Front*2.0f); e.localBounds = AABB(glm::vec3(-1), glm::vec3(1)); scene->addEntity(e); }
@@ -458,7 +851,45 @@ void Application::renderImGui() {
           Entity& e = scene->entities[selectedEntityIndex];
           ImGui::Checkbox("Visible", &e.visible);
           ImGui::SliderFloat3("Position", glm::value_ptr(e.position), -15.0f, 15.0f);
-          if (!e.isLight) {
+          if (e.isBuoyant) {
+              ImGui::Separator();
+              ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "Buoyancy Object State");
+              ImGui::Text("Submerged: %.1f%%", e.submergedFraction * 100.0f);
+              ImGui::Text("Flood Level: %.1f%%", e.floodLevel * 100.0f);
+              ImGui::Text("Velocity: (%.2f, %.2f, %.2f) m/s", e.velocity.x, e.velocity.y, e.velocity.z);
+              ImGui::Text("AngVel: (%.2f, %.2f, %.2f) rad/s", e.angularVelocity.x, e.angularVelocity.y, e.angularVelocity.z);
+              
+              ImGui::Separator();
+              ImGui::Text("Object Adjustment");
+              ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Tip: Ctrl+Click to type precise values!");
+              ImGui::SliderFloat("Mass (kg)", &e.mass, 1.0f, 1000.0f);
+              ImGui::SliderFloat3("Scale", glm::value_ptr(e.scale), 0.1f, 5.0f);
+              if (e.buoyancyType == 2) {
+                  ImGui::SliderFloat("Force Flood Level", &e.floodLevel, 0.0f, 1.0f, "%.3f");
+              }
+              
+              ImGui::ColorEdit3("Col", glm::value_ptr(e.color));
+              ImGui::Separator(); ImGui::Text("PBR Material");
+              ImGui::SliderFloat("Roughness", &e.roughness, 0.05f, 1.0f);
+              ImGui::SliderFloat("Metallic", &e.metallic, 0.0f, 1.0f);
+              ImGui::SliderFloat("Ambient (AO)", &e.ambient, 0.0f, 1.0f);
+              ImGui::SliderFloat("Reflectivity", &e.reflectivity, 0.0f, 1.0f);
+          } else if (e.isCargo) {
+              ImGui::Separator();
+              ImGui::TextColored(ImVec4(0.5f, 1.0f, 0.5f, 1.0f), "Box Cargo Properties");
+              ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "Tip: Ctrl+Click to type precise values!");
+              ImGui::SliderFloat("Mass (kg)", &e.mass, 1.0f, 800.0f);
+              
+              ImGui::SliderFloat("Local Offset X", &e.cargoLocalOffset.x, -0.4f, 0.4f);
+              ImGui::SliderFloat("Local Offset Z", &e.cargoLocalOffset.z, -0.4f, 0.4f);
+              
+              ImGui::ColorEdit3("Col", glm::value_ptr(e.color));
+              ImGui::Separator(); ImGui::Text("PBR Material");
+              ImGui::SliderFloat("Roughness", &e.roughness, 0.05f, 1.0f);
+              ImGui::SliderFloat("Metallic", &e.metallic, 0.0f, 1.0f);
+              ImGui::SliderFloat("Ambient (AO)", &e.ambient, 0.0f, 1.0f);
+              ImGui::SliderFloat("Reflectivity", &e.reflectivity, 0.0f, 1.0f);
+          } else if (!e.isLight) {
               ImGui::SliderFloat3("Rotation", glm::value_ptr(e.rotation), 0.0f, 360.0f);
               ImGui::SliderFloat3("Scale", glm::value_ptr(e.scale), 0.1f, 15.0f);
               ImGui::ColorEdit3("Col", glm::value_ptr(e.color));
@@ -478,32 +909,106 @@ void Application::renderImGui() {
       } else { ImGui::Text("Select an entity"); }
       ImGui::End(); }
     { ImGui::Begin("Engine Controls"); 
-      if (ImGui::Button("Scene: Water Demo")) {
+      ImGui::Text("Active Scene");
+      static int currentSceneIdx = 3;
+      if (isCollisionDemo) {
+          currentSceneIdx = 1;
+      } else if (isBuoyancyScene) {
+          currentSceneIdx = 3;
+      } else {
+          if (ResourceManager::getTexture("floorDiff") == ResourceManager::getTexture("grassDiff")) {
+              currentSceneIdx = 2;
+          } else {
+              currentSceneIdx = 0;
+          }
+      }
+      
+      const char* sceneNames[] = { "Water Demo", "Collision Demo", "World Demo", "Buoyancy Demo" };
+      int selectedIdx = currentSceneIdx;
+      if (ImGui::Combo("##ActiveScene", &selectedIdx, sceneNames, IM_ARRAYSIZE(sceneNames))) {
           physicsSystem->reset();
           scene->entities.clear(); selectedEntityIndex = -1;
-          loadDefaultScene();
-          isCollisionDemo = false;
+          if (selectedIdx == 0) {
+              loadDefaultScene();
+              isCollisionDemo = false;
+              isBuoyancyScene = false;
+          } else if (selectedIdx == 1) {
+              loadCollisionDemoScene();
+              isCollisionDemo = true;
+              isBuoyancyScene = false;
+          } else if (selectedIdx == 2) {
+              loadWorldScene();
+              isCollisionDemo = false;
+              isBuoyancyScene = false;
+          } else if (selectedIdx == 3) {
+              loadBuoyancyScene(3);
+              isCollisionDemo = false;
+              isBuoyancyScene = true;
+          }
       }
-      ImGui::SameLine();
-      if (ImGui::Button("Scene: Collision Demo")) {
-          physicsSystem->reset();
-          scene->entities.clear(); selectedEntityIndex = -1;
-          loadCollisionDemoScene();
-          isCollisionDemo = true;
+      
+      if (isBuoyancyScene) {
+          ImGui::Separator();
+          ImGui::Text("Buoyancy Simulation Scenarios");
+          const char* scenarioNames[] = { 
+              "1: Sphere (r=0.5m, m=157kg)", 
+              "2: Wooden Slab (1x1x0.3m, tilt)", 
+              "3: Open Box (1.2x1.2x0.6m)", 
+              "4: Sandbox (All Side-by-Side)" 
+          };
+          int activeScenario = currentScenario;
+          if (ImGui::Combo("##BuoyancyScenario", &activeScenario, scenarioNames, IM_ARRAYSIZE(scenarioNames))) {
+              loadBuoyancyScene(activeScenario);
+          }
+          ImGui::Checkbox("Debug Overlay (F1 Key)", &debugBuoyancy);
+          ImGui::Separator();
       }
-      ImGui::SameLine();
-      if (ImGui::Button("Scene: World Demo")) {
-          physicsSystem->reset();
-          scene->entities.clear(); selectedEntityIndex = -1;
-          loadWorldScene();
-          isCollisionDemo = false;
-      }
-      ImGui::Separator();
-      ImGui::Checkbox("Normal Map", &useNormalMap); ImGui::Checkbox("Light 2 Moving", &light2Moving); ImGui::Separator();
+      ImGui::Checkbox("Normal Map", &useNormalMap); ImGui::SameLine(); ImGui::Checkbox("Light 2 Moving", &light2Moving); ImGui::Separator();
       ImGui::Text("Advanced Global"); ImGui::SliderFloat("Tess Level", &tessLevel, 1, 64); ImGui::SliderFloat("Explosion", &explosionFactor, 0, 1);
+      ImGui::SliderFloat("Shadow Bias", &shadowBias, 0.0001f, 0.05f, "%.4f");
+      ImGui::SliderFloat("PCF Radius", &pcfRadius, 0.0f, 5.0f, "%.1f");
+      ImGui::Text("Tip: Ctrl+Click sliders to type numbers manually");
       ImGui::Separator();
       ImGui::Text("Particle System"); ImGui::SliderFloat("P Count", &pCount, 1, 256); ImGui::SliderFloat("P Spread", &pSpread, 0.1f, 5.0f); ImGui::SliderFloat("P Size", &pSize, 0.01f, 0.5f);
       ImGui::End(); }
+
+    {
+      ImGui::Begin("Controls & Instructions");
+      ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "Camera Navigation");
+      ImGui::BulletText("TAB     : Toggle mouse cursor / look-around");
+      ImGui::BulletText("W/A/S/D : Move camera horizontally");
+      ImGui::BulletText("SPACE   : Move camera vertically upward");
+      ImGui::BulletText("SHIFT   : Move camera vertically downward");
+      ImGui::BulletText("CTRL    : Hold to sprint camera speed");
+      
+      ImGui::Separator();
+      ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "Diagnostics & Overlay");
+      ImGui::BulletText("F1      : Toggle Buoyancy Debug Overlay");
+      ImGui::BulletText("F2      : Toggle GPU Pass Timings Overlay");
+      ImGui::BulletText("F3      : Cycle G-Buffer visualization target");
+      ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "          (None -> Albedo -> Normals -> Roughness -> Metallic -> Depth)");
+      
+      if (isBuoyancyScene) {
+          ImGui::Separator();
+          ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.0f, 1.0f), "Buoyancy Scenarios");
+          ImGui::BulletText("1       : Load Scenario 1 (Floating Sphere)");
+          ImGui::BulletText("2       : Load Scenario 2 (Wooden Slab Tilt/Rotation)");
+          ImGui::BulletText("3       : Load Scenario 3 (Open-top Flooding Box)");
+          ImGui::BulletText("4       : Load Scenario 4 (Sandbox Side-by-Side)");
+          
+          ImGui::TextColored(ImVec4(1.0f, 0.5f, 0.5f, 1.0f), "Interactive Testing Tasks:");
+          ImGui::BulletText("Sphere  : Select 'Hollow Sphere', drag 'Position Y' slider in Inspector");
+          ImGui::BulletText("          down to bottom, release to watch damped oscillation & bobbing.");
+          ImGui::BulletText("Slab    : Rotate wooden slab, release to watch stability center restore it.");
+          ImGui::BulletText("Box     : Select 'Box Cargo' in list. Slide 'Local Offset X/Z' or raise");
+          ImGui::BulletText("          'Mass' to watch dynamic tilting, water flooding, and capsizing!");
+      }
+      
+      ImGui::Separator();
+      ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "Advanced UI Tip");
+      ImGui::Text("Hold Ctrl + Click any slider to type precise values!");
+      ImGui::End();
+    }
 
     if (isCollisionDemo) {
       ImGui::Begin("Collision Controls"); 
@@ -531,6 +1036,34 @@ void Application::renderImGui() {
       }
       ImGui::End(); }
 
+    if (showProfilingOverlay) {
+        ImGui::SetNextWindowPos(ImVec2(10.0f, 10.0f), ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.75f);
+        ImGuiWindowFlags window_flags = ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoMove;
+        if (ImGui::Begin("GPU Profiler Overlay", nullptr, window_flags)) {
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 1.0f, 1.0f), "GPU PROFILE METRICS (F2)");
+            ImGui::Separator();
+            
+            ImGui::Text("Shadow Pass:    %6.2f ms", renderer->timeShadow);
+            ImGui::Text("Geometry Pass:  %6.2f ms", renderer->timeGeometry);
+            ImGui::Text("IBL / Deferred: %6.2f ms", renderer->timeIBL);
+            ImGui::Text("Water & Glass:  %6.2f ms", renderer->timeWater);
+            ImGui::Text("Post & Debug:   %6.2f ms", renderer->timePost);
+            
+            ImGui::Separator();
+            float totalGpu = renderer->timeShadow + renderer->timeGeometry + renderer->timeIBL + renderer->timeWater + renderer->timePost;
+            ImGui::TextColored(ImVec4(1.0f, 0.84f, 0.0f, 1.0f), "Total GPU Time: %6.2f ms", totalGpu);
+            ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "CPU Frame Time: %6.2f ms (%.1f FPS)", deltaTime * 1000.0f, 1.0f / deltaTime);
+
+            if (gbufferVisualisationMode > 0) {
+                const char* modes[] = { "None", "Albedo", "Normals", "Roughness", "Metallic", "Depth" };
+                ImGui::Separator();
+                ImGui::TextColored(ImVec4(1.0f, 0.2f, 0.2f, 1.0f), "G-Buffer View:  %s (F3)", modes[gbufferVisualisationMode]);
+            }
+            ImGui::End();
+        }
+    }
+
     ImGui::Render(); ImGui_ImplOpenGL3_RenderDrawData(ImGui::GetDrawData());
 }
 
@@ -546,9 +1079,11 @@ void Application::run() {
         
         if (isCollisionDemo) {
             physicsSystem->update(scene, deltaTime, useSpatialGrid);
+        } else if (isBuoyancyScene) {
+            physicsSystem->update(scene, deltaTime, false);
         }
 
-        renderer->renderScene(scene, useNormalMap, tessLevel, explosionFactor, pSpread, pSize, pCount, isCollisionDemo);
+        renderer->renderScene(scene, useNormalMap, tessLevel, explosionFactor, pSpread, pSize, pCount, shadowBias, pcfRadius, isCollisionDemo, debugBuoyancy, gbufferVisualisationMode);
         
         renderImGui();
         

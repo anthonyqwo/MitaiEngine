@@ -22,7 +22,7 @@ layout(binding = 3)  uniform sampler2D shadowMap;
 layout(binding = 5)  uniform samplerCube irradianceMap;
 layout(binding = 6)  uniform samplerCube prefilterMap;
 layout(binding = 7)  uniform sampler2D   brdfLUT;
-layout(binding = 8)  uniform samplerCube pointShadowMap;
+layout(binding = 8)  uniform samplerCubeShadow pointShadowMap;
 
 struct Material { float ambientStrength; };
 uniform Material material;
@@ -41,24 +41,40 @@ uniform float metallic;
 uniform float reflectivity;
 uniform float time;
 uniform float far_plane;
+uniform float u_shadowBias;
+uniform float u_pcfRadius;
 
 const float PI = 3.14159265359;
 
-// --- 輔助函數 (保持不變) ---
+const vec2 poissonDisk[9] = vec2[](
+    vec2(-0.94201624, -0.39906216),
+    vec2(0.94558609, -0.76890725),
+    vec2(-0.094184101, -0.92938870),
+    vec2(0.34495938, 0.29387760),
+    vec2(-0.91588581, 0.45771432),
+    vec2(-0.81544232, -0.87912464),
+    vec2(-0.38208752, 0.27676845),
+    vec2(0.20340809, -0.38208752),
+    vec2(0.74201624, 0.53906216)
+);
+
 float ShadowCalculation(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir) {
     if(length(light1.color) < 0.01) return 0.0;
     vec3 projCoords = fragPosLightSpace.xyz / fragPosLightSpace.w;
     projCoords = projCoords * 0.5 + 0.5;
     if(projCoords.z > 1.0) return 0.0;
     float currentDepth = projCoords.z;
-    float bias = max(0.005 * (1.0 - dot(normal, lightDir)), 0.001);
+    
+    // Slope-scale depth bias scaling with dot(N, L)
+    float bias = max(u_shadowBias * (1.0 - max(dot(normal, lightDir), 0.0)), u_shadowBias * 0.1);
+    
     float shadow = 0.0;
     vec2 texelSize = 1.0 / textureSize(shadowMap, 0);
-    for(int x = -1; x <= 1; ++x) {
-        for(int y = -1; y <= 1; ++y) {
-            float pcfDepth = texture(shadowMap, projCoords.xy + vec2(x, y) * texelSize).r; 
-            shadow += currentDepth - bias > pcfDepth  ? 1.0 : 0.0;        
-        }    
+    
+    // 3x3 Poisson-disk PCF filtering
+    for(int i = 0; i < 9; ++i) {
+        float pcfDepth = texture(shadowMap, projCoords.xy + poissonDisk[i] * texelSize * u_pcfRadius).r;
+        shadow += (currentDepth - bias) > pcfDepth ? 1.0 : 0.0;
     }
     return shadow / 9.0;
 }
@@ -66,22 +82,12 @@ float ShadowCalculation(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir) {
 float PointShadowCalculation(vec3 fragPos, vec3 normal) {
     vec3 fragToLight = fragPos - light2.position;
     float currentDepth = length(fragToLight);
-    float shadow = 0.0; float bias = 0.15; int samples = 20;
-    float viewDistance = length(viewPos - fragPos);
-    float diskRadius = (1.0 + (viewDistance / far_plane)) / 25.0;
-    vec3 sampleOffsetDirections[20] = vec3[] (
-       vec3( 1,  1,  1), vec3( 1, -1,  1), vec3(-1, -1,  1), vec3(-1,  1,  1), 
-       vec3( 1,  1, -1), vec3( 1, -1, -1), vec3(-1, -1, -1), vec3(-1,  1, -1),
-       vec3( 1,  1,  0), vec3( 1, -1,  0), vec3(-1, -1,  0), vec3(-1,  1,  0),
-       vec3( 1,  0,  1), vec3(-1,  0,  1), vec3( 1,  0, -1), vec3(-1,  0, -1),
-       vec3( 0,  1,  1), vec3( 0, -1,  1), vec3( 0, -1, -1), vec3( 0,  1, -1)
-    );
-    for(int i = 0; i < samples; ++i) {
-        float closestDepth = texture(pointShadowMap, fragToLight + sampleOffsetDirections[i] * diskRadius).r;
-        closestDepth *= far_plane;
-        if(currentDepth - bias > closestDepth) shadow += 1.0;
-    }
-    return shadow / float(samples);
+    float bias = u_shadowBias * 10.0;
+    
+    // Single-tap PCF using samplerCubeShadow
+    float refDepth = (currentDepth - bias) / far_plane;
+    float shadowSample = texture(pointShadowMap, vec4(fragToLight, refDepth));
+    return 1.0 - shadowSample;
 }
 
 float DistributionGGX(vec3 N, vec3 H, float roughness) {
@@ -228,5 +234,16 @@ void main() {
     
     color = color / (color + vec3(1.0)); 
     color = pow(color, vec3(1.0/2.2));   
-    FragColor = vec4(color, 1.0);
+
+    float alpha = 1.0;
+    if (isWater) {
+        float fresnelWater = pow(1.0 - NoV, 5.0);
+        alpha = mix(0.4, 0.85, fresnelWater);
+    } else if (!isLightSource) {
+        float F_fresnel = pow(1.0 - NoV, 5.0);
+        alpha = mix(0.15, 0.8, F_fresnel);
+        alpha = clamp(alpha * (reflectivity + 0.1), 0.05, 0.95);
+    }
+
+    FragColor = vec4(color, alpha);
 }

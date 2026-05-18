@@ -67,6 +67,24 @@ vec3 finalColor = directLo + (kD_ibl * diffuseIBL + specularIBL);
 *   **Reflectivity (反射率)**: 獨立調製環境倒影強度。
 *   **Advanced Global**: 在引擎面板中使用 `Tess Level` 與 `Explosion` 控制進階效果。
 *   **Tab**: 切換滑鼠捕獲模式。
+*   **F1**: 切換浮力物理調試疊加層（綠色：浮力，橙色：重力，黃色：質心與浮心連接線）。 / Toggle buoyancy physics debug overlay (Green: Buoyancy force, Orange: Gravity force, Yellow: CoM-to-CoB line).
+*   **A, B, C, D**: 切換浮力場景 A-D。 / Trigger buoyancy scenarios A-D.
+
+---
+
+## 浮力與穩度物理系統 | Buoyancy & Stability Physics System (New)
+引擎新增了符合流體力學與剛體動力學的 3D 浮力模擬系統：
+The engine now features a 3D buoyancy simulation system strictly adhering to fluid mechanics and rigid-body dynamics:
+*   **解析球面浮力解算器 | Analytical Sphere Solver**: 精確計算球冠沉沒體積與浮力中心。 / Analytically computes the spherical cap volume and center of buoyancy.
+*   **點雲積分盒子解算器 | Point-Discretized Box Solver**: 透過點雲採樣精確積分任意傾斜角度下盒子與平板的排水體積與浮心位置。 / Computes submerged volume and center of buoyancy for tilted boxes/slabs via point grid sampling.
+*   **進水下沉模擬 | Flooding & Sinking Simulation**: 開口盒子側翻至水線以下時會觸發進水機制，僅保留薄壁排開水體積，使其自然下沉。 / Open-top box floods and sinks naturally when its top rim breaches the waterline.
+*   **穩度力矩與阻尼 | Metacentric Torque & Damping**: 實作質心與浮心偏移產生的穩度力矩與剛體旋轉、平移的流體阻尼。 / Simulates righting/stabilizing torque and rotational/translational drag in water.
+
+### 測試場景 | Scenarios
+*   **Scenario A**: 中空金屬球落下與漂浮。 / Hollow metal sphere drop and float.
+*   **Scenario B**: 傾斜木質平板以展示復原力矩。 / Tilted wooden slab showing righting torque and stability.
+*   **Scenario C**: 開口金屬盒漂浮，傾斜過度則進水沉沒。 / Open-top metal box floats but floods and sinks if tilted.
+*   **Scenario D**: 綜合沙盒場景，同時模擬三種物體。 / Combined sandbox containing all three objects side-by-side.
 
 ---
 

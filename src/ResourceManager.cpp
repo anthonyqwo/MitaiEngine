@@ -10,6 +10,11 @@ Shader* ResourceManager::loadShader(const char *vShaderFile, const char *fShader
     return Shaders[name];
 }
 
+Shader* ResourceManager::loadComputeShader(const char *cShaderFile, std::string name) {
+    Shaders[name] = new Shader(cShaderFile);
+    return Shaders[name];
+}
+
 Shader* ResourceManager::getShader(std::string name) {
     return Shaders[name];
 }

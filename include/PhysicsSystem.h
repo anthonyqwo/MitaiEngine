@@ -24,6 +24,7 @@ private:
 
     void updateExhaustive(Scene* scene, float deltaTime);
     void updateGrid(Scene* scene, float deltaTime);
+    void updateBuoyancy(Entity& e, float deltaTime, const std::vector<float>& heights, int& heightIndex, float cargoMass = 0.0f, glm::vec3 cargoOffset = glm::vec3(0.0f));
     
     // Physics Math
     void resolveCollisionSphereAABB(Entity* currSphere, Entity* box);

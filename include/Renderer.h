@@ -13,9 +13,27 @@ public:
     Renderer(unsigned int scrWidth, unsigned int scrHeight);
     ~Renderer();
     
-    void renderScene(Scene* scene, bool useNormalMap, float tessLevel, float explosionFactor, float pSpread, float pSize, float pCount, bool multiView = false);
+    void renderScene(Scene* scene, bool useNormalMap, float tessLevel, float explosionFactor, float pSpread, float pSize, float pCount, float shadowBias, float pcfRadius, bool multiView = false, bool debugBuoyancy = false, int gbufferVisualisationMode = 0);
     
+    // Debug Drawing Utilities
+    void drawDebugLine(glm::vec3 start, glm::vec3 end, glm::vec3 color, glm::mat4 view, glm::mat4 proj);
+    void drawDebugArrow(glm::vec3 start, glm::vec3 end, glm::vec3 color, glm::mat4 view, glm::mat4 proj);
+
+    // GPU Pass Timings (ms)
+    float timeShadow = 0.0f;
+    float timeGeometry = 0.0f;
+    float timeIBL = 0.0f;
+    float timeWater = 0.0f;
+    float timePost = 0.0f;
+
 private:
+    // GPU profiling queries
+    unsigned int queryShadow = 0;
+    unsigned int queryGeometry = 0;
+    unsigned int queryIBL = 0;
+    unsigned int queryWater = 0;
+    unsigned int queryPost = 0;
+
     unsigned int SCR_WIDTH, SCR_HEIGHT;
     unsigned int SHADOW_WIDTH = 2048, SHADOW_HEIGHT = 2048;
 
@@ -37,6 +55,8 @@ private:
     int icoCount;
     unsigned int skVAO, skVBO;
     unsigned int quadVAO, quadVBO;
+    unsigned int waterGridVAO, waterGridVBO, waterGridEBO;
+    int waterGridIndexCount;
 
     void setupGBuffer();
     void setupShadows();

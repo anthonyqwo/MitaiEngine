@@ -22,6 +22,7 @@ public:
   void loadDefaultScene();
   void loadCollisionDemoScene();
   void loadWorldScene();
+  void loadBuoyancyScene(int scenario);
   void run();
 
 private:
@@ -48,9 +49,16 @@ private:
   float tessLevel;
   float explosionFactor;
   float pSpread, pSize, pCount;
+  float shadowBias;
+  float pcfRadius;
   int selectedEntityIndex;
 
   bool isCollisionDemo = false;
+  bool isBuoyancyScene = false;
+  bool debugBuoyancy = false;
+  int currentScenario = 0;
+  bool showProfilingOverlay = false;
+  int gbufferVisualisationMode = 0; // 0=None, 1=Albedo, 2=Normals, 3=Roughness, 4=Metallic, 5=Depth
 
   // Collision Physics Simulation Config
   bool useSpatialGrid = true;
