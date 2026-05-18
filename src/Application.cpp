@@ -17,6 +17,7 @@
 
 #include "ResourceManager.h"
 #include "IBLBaker.h"
+#include "RippleSystem.h"
 
 Application* Application::s_instance = nullptr;
 
@@ -90,6 +91,8 @@ void Application::setupResources() {
     ResourceManager::loadShader("shaders/vertex.glsl", "shaders/forward_water_f.glsl", nullptr, nullptr, nullptr, "forward_water");
     ResourceManager::loadShader("shaders/vertex.glsl", "shaders/unlit_f.glsl", nullptr, nullptr, nullptr, "unlit");
     ResourceManager::loadComputeShader("shaders/wave_query.glsl", "waveQuery");
+    ResourceManager::loadComputeShader("shaders/ripple_step.glsl", "rippleStep");
+    ResourceManager::loadComputeShader("shaders/ripple_inject.glsl", "rippleInject");
     
     ResourceManager::loadShader("shaders/skybox_v.glsl", "shaders/skybox_f.glsl", nullptr, nullptr, nullptr, "skybox");
     ResourceManager::loadShader("shaders/shadow_v.glsl", "shaders/shadow_f.glsl", nullptr, nullptr, nullptr, "shadow");
@@ -102,6 +105,21 @@ void Application::setupResources() {
     ResourceManager::loadTexture("assets/container.jpg", "texDiff");
     ResourceManager::loadTexture("assets/container_specular.png", "texSpec");
     ResourceManager::loadTexture("assets/container_normal.png", "texNorm");
+    ResourceManager::loadTexture("assets/pbr/cargo_metal_albedo.png", "cargoMetalAlbedo");
+    ResourceManager::loadTexture("assets/pbr/cargo_metal_normal.png", "cargoMetalNormal");
+    ResourceManager::loadTexture("assets/pbr/cargo_metal_metallic.png", "cargoMetalMetallic");
+    ResourceManager::loadTexture("assets/pbr/cargo_metal_roughness.png", "cargoMetalRoughness");
+    ResourceManager::loadTexture("assets/pbr/cargo_metal_ao.png", "cargoMetalAO");
+    ResourceManager::loadTexture("assets/pbr/painted_box_albedo.png", "paintedBoxAlbedo");
+    ResourceManager::loadTexture("assets/pbr/painted_box_normal.png", "paintedBoxNormal");
+    ResourceManager::loadTexture("assets/pbr/painted_box_metallic.png", "paintedBoxMetallic");
+    ResourceManager::loadTexture("assets/pbr/painted_box_roughness.png", "paintedBoxRoughness");
+    ResourceManager::loadTexture("assets/pbr/painted_box_ao.png", "paintedBoxAO");
+    ResourceManager::loadTexture("assets/pbr/wood_plank_albedo.png", "woodPlankAlbedo");
+    ResourceManager::loadTexture("assets/pbr/wood_plank_normal.png", "woodPlankNormal");
+    ResourceManager::loadTexture("assets/pbr/wood_plank_metallic.png", "woodPlankMetallic");
+    ResourceManager::loadTexture("assets/pbr/wood_plank_roughness.png", "woodPlankRoughness");
+    ResourceManager::loadTexture("assets/pbr/wood_plank_ao.png", "woodPlankAO");
     ResourceManager::loadTexture("assets/water_normal.jpg", "waterNorm");
     ResourceManager::loadTexture("assets/wall.jpg", "floorDiff");
     ResourceManager::loadTexture("assets/wall_normal.jpg", "floorNorm");
@@ -511,7 +529,14 @@ void Application::loadBuoyancyScene(int scenario) {
         Entity slabEnt("Wooden Slab", CUBE, pos, glm::vec3(0.65f, 0.45f, 0.25f));
         slabEnt.scale = glm::vec3(1.0f, 0.3f, 1.0f);
         slabEnt.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
-        slabEnt.roughness = 0.8f; slabEnt.metallic = 0.0f; slabEnt.reflectivity = 0.05f; slabEnt.ambient = 1.0f;
+        slabEnt.color = glm::vec3(1.0f);
+        slabEnt.originalColor = slabEnt.color;
+        slabEnt.roughness = 1.0f; slabEnt.metallic = 1.0f; slabEnt.reflectivity = 0.04f; slabEnt.ambient = 1.0f;
+        slabEnt.albedoTexture = "woodPlankAlbedo";
+        slabEnt.normalTexture = "woodPlankNormal";
+        slabEnt.metallicTexture = "woodPlankMetallic";
+        slabEnt.roughnessTexture = "woodPlankRoughness";
+        slabEnt.aoTexture = "woodPlankAO";
         
         slabEnt.isBuoyant = true;
         slabEnt.buoyancyType = 1; // Slab
@@ -527,7 +552,14 @@ void Application::loadBuoyancyScene(int scenario) {
         Entity boxEnt("Open Box", CUBE, pos, glm::vec3(0.85f, 0.65f, 0.15f));
         boxEnt.scale = glm::vec3(1.2f, 0.6f, 1.2f);
         boxEnt.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
-        boxEnt.roughness = 0.2f; boxEnt.metallic = 0.95f; boxEnt.reflectivity = 0.7f; boxEnt.ambient = 1.0f;
+        boxEnt.color = glm::vec3(1.0f);
+        boxEnt.originalColor = boxEnt.color;
+        boxEnt.roughness = 1.0f; boxEnt.metallic = 1.0f; boxEnt.reflectivity = 0.45f; boxEnt.ambient = 1.0f;
+        boxEnt.albedoTexture = "paintedBoxAlbedo";
+        boxEnt.normalTexture = "paintedBoxNormal";
+        boxEnt.metallicTexture = "paintedBoxMetallic";
+        boxEnt.roughnessTexture = "paintedBoxRoughness";
+        boxEnt.aoTexture = "paintedBoxAO";
         
         boxEnt.isBuoyant = true;
         boxEnt.buoyancyType = 2; // Open-top box
@@ -538,18 +570,25 @@ void Application::loadBuoyancyScene(int scenario) {
 
         // Spawn Cargo inside the Open Box!
         // Random horizontal offset within the inner compartment
-        float rx = ((rand() % 200) / 100.0f - 1.0f) * 0.20f; // [-0.20, 0.20]
-        float rz = ((rand() % 200) / 100.0f - 1.0f) * 0.20f; // [-0.20, 0.20]
+        float rx = ((rand() % 200) / 100.0f - 1.0f) * 0.08f; // [-0.08, 0.08]
+        float rz = ((rand() % 200) / 100.0f - 1.0f) * 0.08f; // [-0.08, 0.08]
         glm::vec3 localOffset(rx, -0.12f, rz); // Sitting perfectly on the bottom floor (Y = -0.12)
         
         Entity cargoEnt("Box Cargo", CUBE, pos + localOffset, glm::vec3(0.45f, 0.45f, 0.5f));
         cargoEnt.scale = glm::vec3(0.3f); // Small heavy metal block
         cargoEnt.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
-        cargoEnt.roughness = 0.1f; cargoEnt.metallic = 0.95f; cargoEnt.reflectivity = 0.5f; cargoEnt.ambient = 1.0f;
+        cargoEnt.color = glm::vec3(1.0f);
+        cargoEnt.originalColor = cargoEnt.color;
+        cargoEnt.roughness = 1.0f; cargoEnt.metallic = 1.0f; cargoEnt.reflectivity = 0.65f; cargoEnt.ambient = 1.0f;
+        cargoEnt.albedoTexture = "cargoMetalAlbedo";
+        cargoEnt.normalTexture = "cargoMetalNormal";
+        cargoEnt.metallicTexture = "cargoMetalMetallic";
+        cargoEnt.roughnessTexture = "cargoMetalRoughness";
+        cargoEnt.aoTexture = "cargoMetalAO";
         
         cargoEnt.isCargo = true;
         cargoEnt.cargoLocalOffset = localOffset;
-        cargoEnt.mass = 100.0f; // Initial cargo mass
+        cargoEnt.mass = 75.0f; // Initial cargo mass
         cargoEnt.hasCollision = false; // No separate collision
         
         scene->addEntity(cargoEnt);
@@ -626,6 +665,22 @@ void Application::processInput() {
         keyF3P = true;
     } else if (glfwGetKey(window, GLFW_KEY_F3) == GLFW_RELEASE) {
         keyF3P = false;
+    }
+
+    static bool keyF4P = false;
+    if (glfwGetKey(window, GLFW_KEY_F4) == GLFW_PRESS && !keyF4P) {
+        waterWavesEnabled = !waterWavesEnabled;
+        keyF4P = true;
+    } else if (glfwGetKey(window, GLFW_KEY_F4) == GLFW_RELEASE) {
+        keyF4P = false;
+    }
+
+    static bool keyF5P = false;
+    if (glfwGetKey(window, GLFW_KEY_F5) == GLFW_PRESS && !keyF5P) {
+        waterDebugMode = (waterDebugMode + 1) % 8;
+        keyF5P = true;
+    } else if (glfwGetKey(window, GLFW_KEY_F5) == GLFW_RELEASE) {
+        keyF5P = false;
     }
     
     if (cursorDisabled) { 
@@ -963,7 +1018,25 @@ void Application::renderImGui() {
           ImGui::Checkbox("Debug Overlay (F1 Key)", &debugBuoyancy);
           ImGui::Separator();
       }
-      ImGui::Checkbox("Normal Map", &useNormalMap); ImGui::SameLine(); ImGui::Checkbox("Light 2 Moving", &light2Moving); ImGui::Separator();
+      ImGui::Checkbox("Normal Map", &useNormalMap); ImGui::SameLine(); ImGui::Checkbox("Light 2 Moving", &light2Moving);
+      ImGui::Checkbox("Water Waves (F4)", &waterWavesEnabled);
+      const char* waterDebugNames[] = { "None", "Alpha", "Scene Depth", "Refraction", "Fresnel", "Ripple Height", "Visual Height", "Physics Height" };
+      ImGui::Combo("Water Debug (F5)", &waterDebugMode, waterDebugNames, IM_ARRAYSIZE(waterDebugNames));
+      if (ImGui::CollapsingHeader("Water Ripple Tuning", ImGuiTreeNodeFlags_DefaultOpen)) {
+          RippleTuning& water = RippleSystem::instance().tuning();
+          ImGui::SliderFloat("rippleAmplitude", &water.rippleAmplitude, 0.2f, 1.6f, "%.2f");
+          ImGui::SliderFloat("visualRippleScale", &water.visualRippleScale, 0.0f, 2.5f, "%.2f");
+          ImGui::SliderFloat("physicsRippleScale", &water.physicsRippleScale, 0.0f, 0.3f, "%.2f");
+          ImGui::SliderFloat("rippleDamping", &water.rippleDamping, 0.950f, 0.999f, "%.3f");
+          ImGui::SliderFloat("ripplePropagationSpeed", &water.ripplePropagationSpeed, 1.2f, 5.0f, "%.2f");
+          ImGui::SliderFloat("maxRippleHeight", &water.maxRippleHeight, 0.04f, 0.10f, "%.3fm");
+          ImGui::SliderFloat("reflectionStrength", &water.reflectionStrength, 0.4f, 2.0f, "%.2f");
+          ImGui::SliderFloat("FresnelStrength", &water.fresnelStrength, 0.4f, 2.0f, "%.2f");
+          ImGui::SliderFloat("waveSteepness", &water.waveSteepness, 0.3f, 1.8f, "%.2f");
+          ImGui::SliderFloat("rippleNormalStrength", &water.rippleNormalStrength, 0.2f, 2.0f, "%.2f");
+          ImGui::SliderFloat("waterNormalStrength", &water.waterNormalStrength, 0.2f, 2.5f, "%.2f");
+      }
+      ImGui::Separator();
       ImGui::Text("Advanced Global"); ImGui::SliderFloat("Tess Level", &tessLevel, 1, 64); ImGui::SliderFloat("Explosion", &explosionFactor, 0, 1);
       ImGui::SliderFloat("Shadow Bias", &shadowBias, 0.0001f, 0.05f, "%.4f");
       ImGui::SliderFloat("PCF Radius", &pcfRadius, 0.0f, 5.0f, "%.1f");
@@ -986,6 +1059,8 @@ void Application::renderImGui() {
       ImGui::BulletText("F1      : Toggle Buoyancy Debug Overlay");
       ImGui::BulletText("F2      : Toggle GPU Pass Timings Overlay");
       ImGui::BulletText("F3      : Cycle G-Buffer visualization target");
+      ImGui::BulletText("F4      : Toggle Water Waves");
+      ImGui::BulletText("F5      : Cycle Water debug target");
       ImGui::TextColored(ImVec4(0.5f, 0.5f, 0.5f, 1.0f), "          (None -> Albedo -> Normals -> Roughness -> Metallic -> Depth)");
       
       if (isBuoyancyScene) {
@@ -1078,12 +1153,12 @@ void Application::run() {
         scene->update(deltaTime, cur, light2Moving);
         
         if (isCollisionDemo) {
-            physicsSystem->update(scene, deltaTime, useSpatialGrid);
+            physicsSystem->update(scene, deltaTime, useSpatialGrid, waterWavesEnabled);
         } else if (isBuoyancyScene) {
-            physicsSystem->update(scene, deltaTime, false);
+            physicsSystem->update(scene, deltaTime, false, waterWavesEnabled);
         }
 
-        renderer->renderScene(scene, useNormalMap, tessLevel, explosionFactor, pSpread, pSize, pCount, shadowBias, pcfRadius, isCollisionDemo, debugBuoyancy, gbufferVisualisationMode);
+        renderer->renderScene(scene, useNormalMap, tessLevel, explosionFactor, pSpread, pSize, pCount, shadowBias, pcfRadius, isCollisionDemo, debugBuoyancy, gbufferVisualisationMode, waterWavesEnabled, waterDebugMode);
         
         renderImGui();
         

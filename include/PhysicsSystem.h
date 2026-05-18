@@ -15,7 +15,7 @@ class PhysicsSystem {
 public:
     PhysicsSystem();
     void buildStaticGrid(Scene* scene);
-    void update(Scene* scene, float deltaTime, bool useGrid);
+    void update(Scene* scene, float deltaTime, bool useGrid, bool waterWavesEnabled = true);
     void reset();
 
 private:
@@ -24,11 +24,20 @@ private:
 
     void updateExhaustive(Scene* scene, float deltaTime);
     void updateGrid(Scene* scene, float deltaTime);
-    void updateBuoyancy(Entity& e, float deltaTime, const std::vector<float>& heights, int& heightIndex, float cargoMass = 0.0f, glm::vec3 cargoOffset = glm::vec3(0.0f));
+    struct WaterQuery {
+        glm::vec4 samplePosition;
+        glm::vec4 waterPosition;
+        glm::vec4 waterNormal;
+        glm::vec4 waterData;
+    };
+
+    void updateBuoyancy(Entity& e, float deltaTime, const std::vector<WaterQuery>& waterQueries, int& queryIndex, float cargoMass = 0.0f, glm::vec3 cargoOffset = glm::vec3(0.0f));
     
     // Physics Math
     void resolveCollisionSphereAABB(Entity* currSphere, Entity* box);
     void resolveCollisionSphereSphere(Entity* s1, Entity* s2);
+    void resolveBuoyantBodyCollisions(Scene* scene);
+    void resolveCollisionBuoyantBodies(Entity* a, Entity* b);
     
     // Limits
     glm::ivec3 getGridCell(glm::vec3 pos) {

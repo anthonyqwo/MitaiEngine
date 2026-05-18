@@ -56,9 +56,11 @@ private:
   bool isCollisionDemo = false;
   bool isBuoyancyScene = false;
   bool debugBuoyancy = false;
+  bool waterWavesEnabled = true;
   int currentScenario = 0;
   bool showProfilingOverlay = false;
   int gbufferVisualisationMode = 0; // 0=None, 1=Albedo, 2=Normals, 3=Roughness, 4=Metallic, 5=Depth
+  int waterDebugMode = 0; // 0=None, 1=Alpha, 2=Scene Depth, 3=Refraction, 4=Fresnel, 5=Ripple, 6=Visual, 7=Physics
 
   // Collision Physics Simulation Config
   bool useSpatialGrid = true;

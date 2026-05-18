@@ -13,7 +13,7 @@ public:
     Renderer(unsigned int scrWidth, unsigned int scrHeight);
     ~Renderer();
     
-    void renderScene(Scene* scene, bool useNormalMap, float tessLevel, float explosionFactor, float pSpread, float pSize, float pCount, float shadowBias, float pcfRadius, bool multiView = false, bool debugBuoyancy = false, int gbufferVisualisationMode = 0);
+    void renderScene(Scene* scene, bool useNormalMap, float tessLevel, float explosionFactor, float pSpread, float pSize, float pCount, float shadowBias, float pcfRadius, bool multiView = false, bool debugBuoyancy = false, int gbufferVisualisationMode = 0, bool waterWavesEnabled = true, int waterDebugMode = 0);
     
     // Debug Drawing Utilities
     void drawDebugLine(glm::vec3 start, glm::vec3 end, glm::vec3 color, glm::mat4 view, glm::mat4 proj);

@@ -9,6 +9,7 @@
 #include <fstream>
 #include <sstream>
 #include <iostream>
+#include <filesystem>
 
 class Shader {
 public:
@@ -18,18 +19,7 @@ public:
     // constructor generates the shader on the fly
     Shader(const char* computePath) {
         hasTessellation = false;
-        std::string computeCode;
-        std::ifstream file;
-        file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
-        try {
-            file.open(computePath);
-            std::stringstream stream;
-            stream << file.rdbuf();
-            file.close();
-            computeCode = stream.str();
-        } catch (std::ifstream::failure& e) {
-            std::cout << "ERROR::SHADER::COMPUTE::FILE_NOT_SUCCESSFULLY_READ: " << computePath << " " << e.what() << std::endl;
-        }
+        std::string computeCode = readShaderSource(computePath);
 
         const char* cCode = computeCode.c_str();
         unsigned int compute = glCreateShader(GL_COMPUTE_SHADER);
@@ -49,26 +39,11 @@ public:
         hasTessellation = (tessControlPath != nullptr || tessEvalPath != nullptr);
         // 1. retrieve the vertex/fragment source code from filePath
         std::string vertexCode, fragmentCode, geometryCode, tessControlCode, tessEvalCode;
-        auto readFile = [](const char* path, std::string& code) {
-            if (!path) return;
-            std::ifstream file;
-            file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
-            try {
-                file.open(path);
-                std::stringstream stream;
-                stream << file.rdbuf();
-                file.close();
-                code = stream.str();
-            } catch (std::ifstream::failure& e) {
-                std::cout << "ERROR::SHADER::FILE_NOT_SUCCESSFULLY_READ: " << path << " " << e.what() << std::endl;
-            }
-        };
-
-        readFile(vertexPath, vertexCode);
-        readFile(fragmentPath, fragmentCode);
-        if (geometryPath) readFile(geometryPath, geometryCode);
-        if (tessControlPath) readFile(tessControlPath, tessControlCode);
-        if (tessEvalPath) readFile(tessEvalPath, tessEvalCode);
+        vertexCode = readShaderSource(vertexPath);
+        fragmentCode = readShaderSource(fragmentPath);
+        if (geometryPath) geometryCode = readShaderSource(geometryPath);
+        if (tessControlPath) tessControlCode = readShaderSource(tessControlPath);
+        if (tessEvalPath) tessEvalCode = readShaderSource(tessEvalPath);
 
         unsigned int vertex, fragment, geometry, tessControl, tessEval;
         auto compileShader = [&](unsigned int& shader, const char* code, GLenum type, const char* name) {
@@ -133,6 +108,52 @@ public:
     }
 
 private:
+    static std::string readShaderSource(const char* path) {
+        if (!path) return "";
+
+        std::filesystem::path shaderPath(path);
+        std::ifstream file;
+        file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
+
+        try {
+            file.open(shaderPath);
+            std::stringstream stream;
+            stream << file.rdbuf();
+            file.close();
+
+            return expandIncludes(stream.str(), shaderPath.parent_path());
+        } catch (std::ifstream::failure& e) {
+            std::cout << "ERROR::SHADER::FILE_NOT_SUCCESSFULLY_READ: " << path << " " << e.what() << std::endl;
+            return "";
+        }
+    }
+
+    static std::string expandIncludes(const std::string& source, const std::filesystem::path& baseDir) {
+        std::stringstream input(source);
+        std::stringstream output;
+        std::string line;
+
+        while (std::getline(input, line)) {
+            std::string trimmed = line;
+            size_t first = trimmed.find_first_not_of(" \t");
+            if (first != std::string::npos) trimmed = trimmed.substr(first);
+
+            if (trimmed.rfind("#include", 0) == 0) {
+                size_t begin = trimmed.find('"');
+                size_t end = trimmed.find('"', begin + 1);
+                if (begin != std::string::npos && end != std::string::npos && end > begin + 1) {
+                    std::filesystem::path includePath = baseDir / trimmed.substr(begin + 1, end - begin - 1);
+                    output << readShaderSource(includePath.string().c_str()) << "\n";
+                    continue;
+                }
+            }
+
+            output << line << "\n";
+        }
+
+        return output.str();
+    }
+
     // utility function for checking shader compilation/linking errors.
     void checkCompileErrors(unsigned int shader, std::string type) {
         int success;

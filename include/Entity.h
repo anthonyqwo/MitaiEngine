@@ -4,6 +4,7 @@
 #include <glm/glm.hpp>
 #include <glm/gtc/matrix_transform.hpp>
 #include <string>
+#include <vector>
 #include <glm/gtc/quaternion.hpp>
 #include "Collider.h"
 
@@ -29,6 +30,11 @@ struct Entity {
     float metallic = 0.0f;
     float ambient = 0.1f;
     float reflectivity = 0.0f;
+    std::string albedoTexture;
+    std::string normalTexture;
+    std::string metallicTexture;
+    std::string roughnessTexture;
+    std::string aoTexture;
 
     // 光源屬性
     bool isLight = false;
@@ -53,6 +59,20 @@ struct Entity {
     glm::quat orientation = glm::quat(1.0f, 0.0f, 0.0f, 0.0f);
     glm::vec3 buoyancyCenter = glm::vec3(0.0f);
     glm::vec3 buoyancyForce = glm::vec3(0.0f);
+    glm::vec3 waterDragForce = glm::vec3(0.0f);
+    glm::vec3 dampingForce = glm::vec3(0.0f);
+    glm::vec3 torqueDebug = glm::vec3(0.0f);
+    glm::vec3 angularVelocityDebug = glm::vec3(0.0f);
+    glm::vec3 waterSurfaceNormal = glm::vec3(0.0f, 1.0f, 0.0f);
+    std::vector<glm::vec3> debugBuoyancySamples;
+    std::vector<glm::vec3> debugRawWaterSurfacePoints;
+    std::vector<glm::vec3> debugWaterSurfacePoints;
+    std::vector<glm::vec3> debugWaterSurfaceNormals;
+    std::vector<float> debugWaterSubmergedDepths;
+    std::vector<glm::vec3> debugRippleInjectionPoints;
+    std::vector<float> debugRippleInjectionRadii;
+    std::vector<float> debugRippleInjectionPressures;
+    std::vector<float> debugRippleInjectionStrengths;
     float submergedFraction = 0.0f;
     float floodLevel = 0.0f;
     float dryTimer = 0.0f;

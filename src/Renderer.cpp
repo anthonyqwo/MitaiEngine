@@ -1,11 +1,14 @@
 #include "Renderer.h"
+#include "WaterWaves.h"
+#include "RippleSystem.h"
 #include <glm/gtc/matrix_transform.hpp>
+#include <glm/gtc/constants.hpp>
+#include <algorithm>
 #include "ResourceManager.h"
 #include <iostream>
 #include <GLFW/glfw3.h>
 #include "Geometry.h"
 #include "Model.h"
-#include <imgui.h>
 
 Renderer::Renderer(unsigned int scrWidth, unsigned int scrHeight) 
     : SCR_WIDTH(scrWidth), SCR_HEIGHT(scrHeight) {
@@ -220,7 +223,7 @@ void Renderer::renderQuad() {
 
 // -----------------------------------------------------
 
-void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, float explosionFactor, float pSpread, float pSize, float pCount, float shadowBias, float pcfRadius, bool multiView, bool debugBuoyancy, int gbufferVisualisationMode) {
+void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, float explosionFactor, float pSpread, float pSize, float pCount, float shadowBias, float pcfRadius, bool multiView, bool debugBuoyancy, int gbufferVisualisationMode, bool waterWavesEnabled, int waterDebugMode) {
     // 0. Shadow Pass
     glBeginQuery(GL_TIME_ELAPSED, queryShadow);
     glm::vec3 sP(5,10,5), pP(-2,2,1);
@@ -373,38 +376,38 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
         glBindVertexArray(skVAO); glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_CUBE_MAP, ResourceManager::getTexture("skyboxMap")); glDrawArrays(GL_TRIANGLES, 0, 36);
         glDepthFunc(GL_LESS);
 
+        if (isFirstViewport) glBeginQuery(GL_TIME_ELAPSED, queryPost);
+        unlitShader->use();
+        unlitShader->setMat4("projection", vp.proj); unlitShader->setMat4("view", vp.view);
+        for (const auto& e : scene->entities) {
+            if (e.isLight && e.visible) {
+                unlitShader->setMat4("model", e.getModelMatrix()); unlitShader->setVec3("objectColor", e.lightColor * e.lightIntensity);
+                glBindVertexArray(cubeVAO); glDrawArrays(GL_TRIANGLES, 0, 36);
+            }
+        }
+
+        particleShader->use();
+        particleShader->setMat4("projection", vp.proj); particleShader->setMat4("view", vp.view);
+        renderParticles(particleShader, scene->entities, (float)glfwGetTime(), pSpread, pSize, pCount);
+        if (isFirstViewport) glEndQuery(GL_TIME_ELAPSED);
+
         if (isFirstViewport) glBeginQuery(GL_TIME_ELAPSED, queryWater);
         glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glDepthMask(GL_FALSE);
         forwardWaterShader->use();
         forwardWaterShader->setMat4("projection", vp.proj);
         forwardWaterShader->setMat4("view", vp.view);
         forwardWaterShader->setVec3("viewPos", vp.pos);
+        forwardWaterShader->setVec2("u_screenSize", glm::vec2((float)SCR_WIDTH, (float)SCR_HEIGHT));
+        forwardWaterShader->setInt("u_waterDebugMode", waterDebugMode);
         forwardWaterShader->setFloat("time", (float)glfwGetTime());
         forwardWaterShader->setFloat("u_shadowBias", shadowBias);
         forwardWaterShader->setFloat("u_pcfRadius", pcfRadius);
+        forwardWaterShader->setBool("u_debugRippleHeatmap", debugBuoyancy);
+        forwardWaterShader->setBool("u_enableWaterWaves", waterWavesEnabled);
         
-        // Pass 4 Gerstner Wave parameter uniforms
-        struct CPUWave {
-            glm::vec2 direction;
-            float amplitude;
-            float wavelength;
-            float speed;
-            float steepness;
-        };
-        const CPUWave waves[4] = {
-            { glm::vec2(1.0f, 0.2f),   0.15f, 6.0f, 1.8f, 0.4f },
-            { glm::vec2(-0.7f, 0.7f),  0.10f, 3.5f, 2.5f, 0.3f },
-            { glm::vec2(0.1f, 1.0f),   0.08f, 2.0f, 1.2f, 0.2f },
-            { glm::vec2(-0.3f, -0.9f), 0.04f, 1.2f, 0.8f, 0.1f }
-        };
-        for (int i = 0; i < 4; i++) {
-            std::string prefix = "waves[" + std::to_string(i) + "].";
-            forwardWaterShader->setVec2(prefix + "direction", waves[i].direction);
-            forwardWaterShader->setFloat(prefix + "amplitude", waves[i].amplitude);
-            forwardWaterShader->setFloat(prefix + "wavelength", waves[i].wavelength);
-            forwardWaterShader->setFloat(prefix + "speed", waves[i].speed);
-            forwardWaterShader->setFloat(prefix + "steepness", waves[i].steepness);
-        }
+        setWaterWaveUniforms(*forwardWaterShader);
+        RippleSystem::bindRippleUniforms(*forwardWaterShader, 9, true);
 
         // Reset water light uniforms to zero before the loop
         // so invisible/removed lights properly become dark
@@ -425,6 +428,7 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
         forwardWaterShader->setFloat("far_plane", far_p);
 
         // Water textures
+        glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, gPosition);
         glActiveTexture(GL_TEXTURE3); glBindTexture(GL_TEXTURE_2D, depthMap);
         glActiveTexture(GL_TEXTURE5); glBindTexture(GL_TEXTURE_CUBE_MAP, ResourceManager::getTexture("irradianceMap"));
         glActiveTexture(GL_TEXTURE6); glBindTexture(GL_TEXTURE_CUBE_MAP, ResourceManager::getTexture("prefilterMap"));
@@ -460,46 +464,36 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
                 glDrawArrays(GL_TRIANGLES, 0, 6);
             }
         }
+        glDepthMask(GL_TRUE);
 
-        // Draw Glass Tank walls transparently
+        // Transparent glass tank overlay. Keep depth testing, but do not write depth,
+        // so the glass tint never hides the water surface or submerged objects.
+        glDepthMask(GL_FALSE);
         forwardWaterShader->use();
         for (const auto& e : scene->entities) {
             if (!e.visible || (e.name != "Tank Bottom" && e.name != "Tank Left" && e.name != "Tank Right" && e.name != "Tank Back" && e.name != "Tank Front")) continue;
             forwardWaterShader->setMat4("model", e.getModelMatrix());
-            forwardWaterShader->setFloat("roughness", e.roughness); 
+            forwardWaterShader->setFloat("roughness", e.roughness);
             forwardWaterShader->setFloat("metallic", e.metallic);
-            forwardWaterShader->setFloat("material.ambientStrength", e.ambient); 
+            forwardWaterShader->setFloat("material.ambientStrength", e.ambient);
             forwardWaterShader->setVec3("objectColor", e.color);
             forwardWaterShader->setFloat("reflectivity", e.reflectivity);
             forwardWaterShader->setBool("isWater", false);
             forwardWaterShader->setBool("useNormalMap", false);
-            glm::mat4 texMat(1.0f);
-            forwardWaterShader->setMat4("textureMatrix", texMat);
+            forwardWaterShader->setMat4("textureMatrix", glm::mat4(1.0f));
 
             glBindVertexArray(cubeVAO);
-            glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); 
+            glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));
             glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("flatNormalTex"));
-            glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); 
-            glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));      
-            glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex")); 
+            glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));
+            glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));
+            glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));
             glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("blackTex"));
             glDrawArrays(GL_TRIANGLES, 0, 36);
         }
+        glDepthMask(GL_TRUE);
+
         if (isFirstViewport) glEndQuery(GL_TIME_ELAPSED);
-
-        if (isFirstViewport) glBeginQuery(GL_TIME_ELAPSED, queryPost);
-        unlitShader->use();
-        unlitShader->setMat4("projection", vp.proj); unlitShader->setMat4("view", vp.view);
-        for (const auto& e : scene->entities) {
-            if (e.isLight && e.visible) {
-                unlitShader->setMat4("model", e.getModelMatrix()); unlitShader->setVec3("objectColor", e.lightColor * e.lightIntensity);
-                glBindVertexArray(cubeVAO); glDrawArrays(GL_TRIANGLES, 0, 36);
-            }
-        }
-
-        particleShader->use();
-        particleShader->setMat4("projection", vp.proj); particleShader->setMat4("view", vp.view);
-        renderParticles(particleShader, scene->entities, (float)glfwGetTime(), pSpread, pSize, pCount);
 
         // 4. Buoyancy Debug Overlay (Wireframe & Force Arrows)
         if (debugBuoyancy) {
@@ -558,36 +552,6 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
                 }
                 glPolygonMode(GL_FRONT_AND_BACK, GL_FILL);
 
-                // Display floodLevel above the open box!
-                if (e.buoyancyType == 2) {
-                    float H = e.scale.y;
-                    glm::vec3 topCenterWorld = e.position + glm::vec3(0.0f, H * 0.5f + 0.35f, 0.0f);
-                    
-                    glm::vec4 clipPos = vp.proj * vp.view * glm::vec4(topCenterWorld, 1.0f);
-                    if (clipPos.w > 0.0f) {
-                        glm::vec3 ndcPos = glm::vec3(clipPos) / clipPos.w;
-                        float screenX = vp.x + (ndcPos.x * 0.5f + 0.5f) * vp.w;
-                        float screenY = vp.y + ((1.0f - ndcPos.y) * 0.5f + 0.5f) * vp.h;
-                        
-                        ImGui::SetNextWindowPos(ImVec2(screenX - 70.0f, screenY - 25.0f));
-                        ImGui::SetNextWindowSize(ImVec2(140.0f, 48.0f));
-                        ImGui::Begin(("##FloodWindow_" + e.name).c_str(), nullptr, 
-                            ImGuiWindowFlags_NoDecoration | ImGuiWindowFlags_AlwaysAutoResize | 
-                            ImGuiWindowFlags_NoSavedSettings | ImGuiWindowFlags_NoFocusOnAppearing | 
-                            ImGuiWindowFlags_NoNav | ImGuiWindowFlags_NoBackground | ImGuiWindowFlags_NoInputs);
-                        
-                        ImGui::PushStyleColor(ImGuiCol_Text, ImVec4(wireColor.x, wireColor.y, wireColor.z, 1.0f));
-                        ImGui::Text("Flood: %.1f%%", e.floodLevel * 100.0f);
-                        ImGui::PopStyleColor();
-                        
-                        ImGui::PushStyleColor(ImGuiCol_PlotHistogram, ImVec4(wireColor.x, wireColor.y, wireColor.z, 1.0f));
-                        ImGui::ProgressBar(e.floodLevel, ImVec2(110.0f, 5.0f), "");
-                        ImGui::PopStyleColor();
-                        
-                        ImGui::End();
-                    }
-                }
-                
                 // C. Draw Force Arrows
                 float forceScale = 0.002f; 
                 
@@ -601,18 +565,101 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
                 }
                 
                 // Drag Force (acts at CM e.position): yellow
-                float Cd = 2.5f;
-                glm::vec3 dragForce = -(Cd * e.submergedFraction + 0.1f) * e.mass * e.velocity;
+                glm::vec3 dragForce = e.waterDragForce;
                 if (glm::length(dragForce) > 0.001f) {
                     drawDebugArrow(e.position, e.position + dragForce * forceScale, glm::vec3(1.0f, 1.0f, 0.0f), vp.view, vp.proj);
+                }
+
+                if (glm::length(e.dampingForce) > 0.001f) {
+                    drawDebugArrow(e.position, e.position + e.dampingForce * forceScale, glm::vec3(0.7f, 0.25f, 1.0f), vp.view, vp.proj);
+                }
+
+                float torqueScale = 0.015f;
+                if (glm::length(e.torqueDebug) > 0.001f) {
+                    drawDebugArrow(e.position, e.position + glm::normalize(e.torqueDebug) * glm::min(glm::length(e.torqueDebug) * torqueScale, 1.25f), glm::vec3(1.0f, 0.45f, 0.85f), vp.view, vp.proj);
+                }
+
+                if (glm::length(e.angularVelocityDebug) > 0.001f) {
+                    drawDebugArrow(e.position + glm::vec3(0.0f, 0.2f, 0.0f), e.position + glm::vec3(0.0f, 0.2f, 0.0f) + e.angularVelocityDebug * 0.18f, glm::vec3(0.35f, 1.0f, 0.2f), vp.view, vp.proj);
                 }
                 
                 // Lever arm connection (thin line between CM and CB): gray
                 drawDebugLine(e.position, e.buoyancyCenter, glm::vec3(0.5f, 0.5f, 0.5f), vp.view, vp.proj);
+
+                // Water query diagnostics: object sample, displaced water point, and queried normal.
+                size_t sampleCount = std::min(e.debugBuoyancySamples.size(), e.debugWaterSurfacePoints.size());
+                size_t stride = sampleCount > 80 ? (sampleCount / 80 + 1) : 1;
+                for (size_t i = 0; i < sampleCount; i += stride) {
+                    glm::vec3 sample = e.debugBuoyancySamples[i];
+                    glm::vec3 rawWaterPoint = (i < e.debugRawWaterSurfacePoints.size()) ? e.debugRawWaterSurfacePoints[i] : e.debugWaterSurfacePoints[i];
+                    glm::vec3 waterPoint = e.debugWaterSurfacePoints[i];
+                    glm::vec3 normal = (i < e.debugWaterSurfaceNormals.size()) ? e.debugWaterSurfaceNormals[i] : glm::vec3(0.0f, 1.0f, 0.0f);
+                    float submergedDepth = (i < e.debugWaterSubmergedDepths.size()) ? e.debugWaterSubmergedDepths[i] : 0.0f;
+                    glm::vec3 sampleColor = submergedDepth > 0.0f
+                        ? glm::mix(glm::vec3(1.0f, 0.85f, 0.1f), glm::vec3(0.1f, 0.9f, 1.0f), glm::clamp(submergedDepth * 2.0f, 0.0f, 1.0f))
+                        : glm::vec3(1.0f, 0.25f, 0.25f);
+
+                    float marker = 0.035f;
+                    drawDebugLine(sample - glm::vec3(marker, 0.0f, 0.0f), sample + glm::vec3(marker, 0.0f, 0.0f), sampleColor, vp.view, vp.proj);
+                    drawDebugLine(sample - glm::vec3(0.0f, marker, 0.0f), sample + glm::vec3(0.0f, marker, 0.0f), sampleColor, vp.view, vp.proj);
+                    drawDebugLine(sample - glm::vec3(0.0f, 0.0f, marker), sample + glm::vec3(0.0f, 0.0f, marker), sampleColor, vp.view, vp.proj);
+
+                    drawDebugLine(sample, waterPoint, glm::vec3(0.9f, 0.9f, 0.9f), vp.view, vp.proj);
+                    if (glm::abs(rawWaterPoint.y - waterPoint.y) > 0.002f) {
+                        drawDebugLine(rawWaterPoint, waterPoint, glm::vec3(0.95f, 0.75f, 0.15f), vp.view, vp.proj);
+                        float rawMarker = 0.025f;
+                        drawDebugLine(rawWaterPoint - glm::vec3(rawMarker, 0.0f, 0.0f), rawWaterPoint + glm::vec3(rawMarker, 0.0f, 0.0f), glm::vec3(1.0f, 0.55f, 0.05f), vp.view, vp.proj);
+                    }
+                    drawDebugArrow(waterPoint, waterPoint + normal * 0.35f, glm::vec3(0.1f, 1.0f, 0.45f), vp.view, vp.proj);
+                    if (submergedDepth > 0.0f) {
+                        drawDebugArrow(waterPoint, waterPoint + normal * glm::min(submergedDepth, 0.4f), glm::vec3(0.2f, 0.8f, 1.0f), vp.view, vp.proj);
+                    }
+                }
+
+                // Ripple contact patch diagnostics: pressure heatmap plus brush radius.
+                size_t rippleSampleCount = e.debugRippleInjectionPoints.size();
+                for (size_t i = 0; i < rippleSampleCount; ++i) {
+                    glm::vec3 sample = e.debugRippleInjectionPoints[i];
+                    float radius = (i < e.debugRippleInjectionRadii.size()) ? e.debugRippleInjectionRadii[i] : 0.25f;
+                    float pressure = (i < e.debugRippleInjectionPressures.size()) ? e.debugRippleInjectionPressures[i] : 0.0f;
+                    float strength = (i < e.debugRippleInjectionStrengths.size()) ? e.debugRippleInjectionStrengths[i] : 0.0f;
+                    float pressureHeat = glm::clamp(pressure / (1000.0f * 9.81f * 0.75f), 0.0f, 1.0f);
+                    float strengthHeat = glm::clamp(glm::abs(strength) / 0.080f, 0.12f, 1.0f);
+                    glm::vec3 signColor = strength < 0.0f ? glm::vec3(1.0f, 0.08f, 0.03f) : glm::vec3(0.05f, 0.38f, 1.0f);
+                    glm::vec3 pressureColor = signColor * glm::mix(0.35f, 1.0f, glm::max(pressureHeat, strengthHeat));
+                    glm::vec3 p(sample.x, 4.035f, sample.z);
+                    float marker = 0.045f + glm::clamp(glm::abs(strength) * 0.8f, 0.0f, 0.08f);
+
+                    drawDebugLine(p - glm::vec3(marker, 0.0f, 0.0f), p + glm::vec3(marker, 0.0f, 0.0f), pressureColor, vp.view, vp.proj);
+                    drawDebugLine(p - glm::vec3(0.0f, 0.0f, marker), p + glm::vec3(0.0f, 0.0f, marker), pressureColor, vp.view, vp.proj);
+
+                    int segments = 16;
+                    for (int s = 0; s < segments; ++s) {
+                        float a0 = (float)s / (float)segments * glm::two_pi<float>();
+                        float a1 = (float)(s + 1) / (float)segments * glm::two_pi<float>();
+                        glm::vec3 p0(p.x + glm::cos(a0) * radius, p.y, p.z + glm::sin(a0) * radius);
+                        glm::vec3 p1(p.x + glm::cos(a1) * radius, p.y, p.z + glm::sin(a1) * radius);
+                        drawDebugLine(p0, p1, pressureColor, vp.view, vp.proj);
+                    }
+                }
+            }
+
+            for (const RippleImpulse& impulse : RippleSystem::instance().lastImpulses()) {
+                glm::vec3 p = impulse.position;
+                float r = impulse.radius;
+                float heat = glm::clamp(glm::abs(impulse.strength) / 0.080f, 0.15f, 1.0f);
+                glm::vec3 color = (impulse.strength < 0.0f ? glm::vec3(1.0f, 0.08f, 0.03f) : glm::vec3(0.05f, 0.38f, 1.0f)) * heat;
+                int segments = 18;
+                for (int i = 0; i < segments; ++i) {
+                    float a0 = (float)i / (float)segments * glm::two_pi<float>();
+                    float a1 = (float)(i + 1) / (float)segments * glm::two_pi<float>();
+                    glm::vec3 p0 = glm::vec3(p.x + glm::cos(a0) * r, 4.02f, p.z + glm::sin(a0) * r);
+                    glm::vec3 p1 = glm::vec3(p.x + glm::cos(a1) * r, 4.02f, p.z + glm::sin(a1) * r);
+                    drawDebugLine(p0, p1, color, vp.view, vp.proj);
+                }
+                drawDebugArrow(glm::vec3(p.x, 4.02f, p.z), glm::vec3(p.x, 4.02f + impulse.strength * 4.0f, p.z), color, vp.view, vp.proj);
             }
         }
-        if (isFirstViewport) glEndQuery(GL_TIME_ELAPSED);
-
         glDisable(GL_BLEND);
     }
 
@@ -653,13 +700,23 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
 
 void Renderer::renderEntitiesToGBuffer(Shader* shader, const std::vector<Entity>& entities, bool useNormalMap) {
     shader->setBool("useNormalMap", useNormalMap);
+    shader->setBool("isWater", false);
+    shader->setBool("u_enableWaterWaves", false);
+    shader->setBool("u_useRipple", false);
     
     unsigned int whiteTex = ResourceManager::getTexture("whiteTex");
     unsigned int flatNormalTex = ResourceManager::getTexture("flatNormalTex");
     unsigned int blackTex = ResourceManager::getTexture("blackTex");
+    auto entityTexture = [](const std::string& textureName, const std::string& fallbackName) {
+        if (!textureName.empty()) {
+            unsigned int texture = ResourceManager::getTexture(textureName);
+            if (texture != 0) return texture;
+        }
+        return ResourceManager::getTexture(fallbackName);
+    };
 
     for (const auto& e : entities) {
-        if (!e.visible || e.type == WATER || e.type == PARTICLE || e.isLight || 
+        if (!e.visible || e.type == WATER || e.type == PARTICLE || e.isLight ||
             e.name == "Tank Bottom" || e.name == "Tank Left" || e.name == "Tank Right" || e.name == "Tank Back" || e.name == "Tank Front") continue;
         
         if (shader->hasTessellation) { if (e.type != ADV_SPHERE) continue; }
@@ -691,9 +748,11 @@ void Renderer::renderEntitiesToGBuffer(Shader* shader, const std::vector<Entity>
             glDrawArrays(GL_TRIANGLES, 0, 18);
         } else if (e.type == CUBE) {
             glBindVertexArray(cubeVAO);
-            glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("texDiff"));
-            glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("texNorm"));
-            glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("texSpec")); 
+            glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, entityTexture(e.albedoTexture, "texDiff"));
+            glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, entityTexture(e.normalTexture, "texNorm"));
+            glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, entityTexture(e.metallicTexture, "texSpec"));
+            glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, entityTexture(e.roughnessTexture, "whiteTex"));
+            glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, entityTexture(e.aoTexture, "whiteTex"));
             
             if (e.buoyancyType == 2) {
                 // Hollow open-top box rendering: Draw 5 walls in local space
