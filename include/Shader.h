@@ -10,6 +10,7 @@
 #include <sstream>
 #include <iostream>
 #include <filesystem>
+#include "AssetPath.h"
 
 class Shader {
 public:
@@ -111,7 +112,7 @@ private:
     static std::string readShaderSource(const char* path) {
         if (!path) return "";
 
-        std::filesystem::path shaderPath(path);
+        std::filesystem::path shaderPath = AssetPath::resolve(path);
         std::ifstream file;
         file.exceptions(std::ifstream::failbit | std::ifstream::badbit);
 

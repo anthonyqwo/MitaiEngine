@@ -16,6 +16,7 @@
 #include "imgui_impl_opengl3.h"
 
 #include "ResourceManager.h"
+#include "AssetPath.h"
 #include "IBLBaker.h"
 #include "RippleSystem.h"
 
@@ -214,7 +215,7 @@ void Application::loadDefaultScene() {
     scene->addEntity(icoEnt);
     
     Entity waterEntity("Water Surface", WATER, glm::vec3(0, -0.49f, 0), glm::vec3(0.1f, 0.3f, 0.6f));
-    waterEntity.roughness=0.1f; waterEntity.reflectivity=0.4f; waterEntity.metallic=0.0f;
+    waterEntity.roughness=0.055f; waterEntity.reflectivity=0.42f; waterEntity.metallic=0.0f;
     waterEntity.hasCollision = false;
     scene->addEntity(waterEntity);
 
@@ -227,6 +228,12 @@ void Application::loadDefaultScene() {
     lampEnt.isLight=true; lampEnt.lightColor=glm::vec3(1.0f, 0.5f, 0.0f); lampEnt.lightIntensity=2.0f; lampEnt.scale=glm::vec3(0.2f);
     lampEnt.hasCollision = false;
     scene->addEntity(lampEnt);
+
+    Entity waterHighlight("Water Highlight Light", CUBE, glm::vec3(3.8f, 2.3f, 0.0f), glm::vec3(0.45f, 0.75f, 1.0f));
+    waterHighlight.isLight = true; waterHighlight.lightColor = glm::vec3(0.45f, 0.75f, 1.0f);
+    waterHighlight.lightIntensity = 6.0f; waterHighlight.scale = glm::vec3(0.16f);
+    waterHighlight.hasCollision = false;
+    scene->addEntity(waterHighlight);
     
     Entity partEnt("Particle Source", PARTICLE, glm::vec3(0, 1.0f, 0), glm::vec3(124.0f/255.0f, 117.0f/255.0f, 112.0f/255.0f));
     partEnt.hasCollision = false;
@@ -319,6 +326,12 @@ void Application::loadWorldScene() {
     lampEnt.hasCollision = false;
     scene->addEntity(lampEnt);
 
+    Entity waterHighlight("Water Highlight Light", CUBE, glm::vec3(3.8f, 2.3f, 0.0f), glm::vec3(0.45f, 0.75f, 1.0f));
+    waterHighlight.isLight = true; waterHighlight.lightColor = glm::vec3(0.45f, 0.75f, 1.0f);
+    waterHighlight.lightIntensity = 6.0f; waterHighlight.scale = glm::vec3(0.16f);
+    waterHighlight.hasCollision = false;
+    scene->addEntity(waterHighlight);
+
     // === Ground Terrain (large grass-textured floor) ===
     // Floor geometry Y=0 locally, positioned at Y=-0.5 like Water Demo
     Entity groundEnt("Terrain", FLOOR, glm::vec3(0, -0.5f, 0), glm::vec3(0.6f, 0.8f, 0.4f));
@@ -331,7 +344,7 @@ void Application::loadWorldScene() {
     // === Water Lake (same approach as Water Demo: water Y just above floor Y) ===
     Entity waterEnt("Water Surface", WATER, glm::vec3(-10.0f, -0.49f, -8.0f), glm::vec3(0.1f, 0.3f, 0.6f));
     waterEnt.scale = glm::vec3(1.5f, 1.0f, 1.5f);
-    waterEnt.roughness = 0.1f; waterEnt.reflectivity = 0.4f; waterEnt.metallic = 0.0f;
+    waterEnt.roughness = 0.055f; waterEnt.reflectivity = 0.42f; waterEnt.metallic = 0.0f;
     waterEnt.hasCollision = false;
     scene->addEntity(waterEnt);
 
@@ -489,7 +502,7 @@ void Application::loadBuoyancyScene(int scenario) {
 
     // 3. Spawn Water plane (y = 4.0m)
     Entity waterEntity("Water Surface", WATER, glm::vec3(0.0f, 4.0f, 0.0f), glm::vec3(0.0f, 0.4f, 0.8f));
-    waterEntity.roughness = 0.05f; waterEntity.reflectivity = 0.6f; waterEntity.metallic = 0.1f;
+    waterEntity.roughness = 0.045f; waterEntity.reflectivity = 0.46f; waterEntity.metallic = 0.0f;
     waterEntity.ambient = 1.0f;
     waterEntity.scale = glm::vec3(10.0f / 14.0f, 1.0f, 10.0f / 14.0f);
     waterEntity.hasCollision = false;
@@ -507,6 +520,12 @@ void Application::loadBuoyancyScene(int scenario) {
     lampEnt.lightIntensity = 3.0f; lampEnt.scale = glm::vec3(0.2f);
     lampEnt.hasCollision = false;
     scene->addEntity(lampEnt);
+
+    Entity waterHighlight("Water Highlight Light", CUBE, glm::vec3(3.8f, 6.8f, 0.0f), glm::vec3(0.45f, 0.75f, 1.0f));
+    waterHighlight.isLight = true; waterHighlight.lightColor = glm::vec3(0.45f, 0.75f, 1.0f);
+    waterHighlight.lightIntensity = 8.0f; waterHighlight.scale = glm::vec3(0.18f);
+    waterHighlight.hasCollision = false;
+    scene->addEntity(waterHighlight);
 
     // 5. Spawn Buoyant Entities based on Scenario A/B/C/D
     if (scenario == 0 || scenario == 3) { // Hollow Sphere (Scenario A or D)
@@ -587,6 +606,7 @@ void Application::loadBuoyancyScene(int scenario) {
         cargoEnt.aoTexture = "cargoMetalAO";
         
         cargoEnt.isCargo = true;
+        cargoEnt.buoyancyType = 1; // Box-shaped if it becomes a standalone buoyant body.
         cargoEnt.cargoLocalOffset = localOffset;
         cargoEnt.mass = 75.0f; // Initial cargo mass
         cargoEnt.hasCollision = false; // No separate collision
@@ -677,7 +697,7 @@ void Application::processInput() {
 
     static bool keyF5P = false;
     if (glfwGetKey(window, GLFW_KEY_F5) == GLFW_PRESS && !keyF5P) {
-        waterDebugMode = (waterDebugMode + 1) % 8;
+        waterDebugMode = (waterDebugMode + 1) % 22;
         keyF5P = true;
     } else if (glfwGetKey(window, GLFW_KEY_F5) == GLFW_RELEASE) {
         keyF5P = false;
@@ -1020,7 +1040,12 @@ void Application::renderImGui() {
       }
       ImGui::Checkbox("Normal Map", &useNormalMap); ImGui::SameLine(); ImGui::Checkbox("Light 2 Moving", &light2Moving);
       ImGui::Checkbox("Water Waves (F4)", &waterWavesEnabled);
-      const char* waterDebugNames[] = { "None", "Alpha", "Scene Depth", "Refraction", "Fresnel", "Ripple Height", "Visual Height", "Physics Height" };
+      const char* waterDebugNames[] = {
+          "None", "Alpha", "Scene Depth", "Refraction", "Fresnel", "Ripple Height", "Visual Height", "Physics Height",
+          "Dry Cavity Mask", "Internal Box Water", "Invalid Global Intersection", "Raw Water Height",
+          "Disable Detail Normal", "Disable Ripple Normal", "Disable Gerstner Normal", "Reconstructed Ripple Normals",
+          "Final Normal", "NdotL", "NdotH", "Specular", "Reflection", "Final Lighting"
+      };
       ImGui::Combo("Water Debug (F5)", &waterDebugMode, waterDebugNames, IM_ARRAYSIZE(waterDebugNames));
       if (ImGui::CollapsingHeader("Water Ripple Tuning", ImGuiTreeNodeFlags_DefaultOpen)) {
           RippleTuning& water = RippleSystem::instance().tuning();
@@ -1028,10 +1053,17 @@ void Application::renderImGui() {
           ImGui::SliderFloat("visualRippleScale", &water.visualRippleScale, 0.0f, 2.5f, "%.2f");
           ImGui::SliderFloat("physicsRippleScale", &water.physicsRippleScale, 0.0f, 0.3f, "%.2f");
           ImGui::SliderFloat("rippleDamping", &water.rippleDamping, 0.950f, 0.999f, "%.3f");
-          ImGui::SliderFloat("ripplePropagationSpeed", &water.ripplePropagationSpeed, 1.2f, 5.0f, "%.2f");
-          ImGui::SliderFloat("maxRippleHeight", &water.maxRippleHeight, 0.04f, 0.10f, "%.3fm");
-          ImGui::SliderFloat("reflectionStrength", &water.reflectionStrength, 0.4f, 2.0f, "%.2f");
-          ImGui::SliderFloat("FresnelStrength", &water.fresnelStrength, 0.4f, 2.0f, "%.2f");
+          ImGui::SliderFloat("ripplePropagationSpeed", &water.ripplePropagationSpeed, 0.5f, 3.2f, "%.2f");
+          ImGui::SliderFloat("maxRippleHeight", &water.maxRippleHeight, 0.025f, 0.080f, "%.3fm");
+          ImGui::SliderFloat("rippleNoiseThreshold", &water.rippleNoiseThreshold, 0.0000f, 0.0050f, "%.4fm");
+          ImGui::SliderFloat("reflectionStrength", &water.reflectionStrength, 0.4f, 3.0f, "%.2f");
+          ImGui::SliderFloat("FresnelStrength", &water.fresnelStrength, 0.4f, 2.5f, "%.2f");
+          ImGui::SliderFloat("specularStrength", &water.specularStrength, 0.0f, 5.0f, "%.2f");
+          ImGui::SliderFloat("shininess", &water.shininess, 16.0f, 256.0f, "%.0f");
+          ImGui::SliderFloat("waterRoughness", &water.waterRoughness, 0.02f, 0.65f, "%.2f");
+          ImGui::SliderFloat("normalStrength", &water.normalStrength, 0.0f, 2.0f, "%.2f");
+          ImGui::SliderFloat("crestHighlightStrength", &water.crestHighlightStrength, 0.0f, 3.0f, "%.2f");
+          ImGui::ColorEdit3("skyReflectionColor", glm::value_ptr(water.skyReflectionColor));
           ImGui::SliderFloat("waveSteepness", &water.waveSteepness, 0.3f, 1.8f, "%.2f");
           ImGui::SliderFloat("rippleNormalStrength", &water.rippleNormalStrength, 0.2f, 2.0f, "%.2f");
           ImGui::SliderFloat("waterNormalStrength", &water.waterNormalStrength, 0.2f, 2.5f, "%.2f");
@@ -1181,7 +1213,7 @@ void Application::mouse_callback(GLFWwindow* window, double xposIn, double yposI
 
 unsigned int Application::loadCubemap(std::vector<std::string> faces) {
     unsigned int tid; glGenTextures(1, &tid); glBindTexture(GL_TEXTURE_CUBE_MAP, tid); stbi_set_flip_vertically_on_load(false);
-    for(int i=0; i<6; i++){ int w,h,c; unsigned char *d=stbi_load(faces[i].c_str(), &w, &h, &c, 0); if(d) glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X+i, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, d); stbi_image_free(d); }
+    for(int i=0; i<6; i++){ int w,h,c; std::string facePath = AssetPath::resolve(faces[i]).string(); unsigned char *d=stbi_load(facePath.c_str(), &w, &h, &c, 0); if(d) glTexImage2D(GL_TEXTURE_CUBE_MAP_POSITIVE_X+i, 0, GL_RGB, w, h, 0, GL_RGB, GL_UNSIGNED_BYTE, d); stbi_image_free(d); }
     glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MIN_FILTER, GL_LINEAR); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_MAG_FILTER, GL_LINEAR); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE); glTexParameteri(GL_TEXTURE_CUBE_MAP, GL_TEXTURE_WRAP_R, GL_CLAMP_TO_EDGE);
     stbi_set_flip_vertically_on_load(true); return tid;
 }

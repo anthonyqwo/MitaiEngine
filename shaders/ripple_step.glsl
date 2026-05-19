@@ -9,6 +9,7 @@ uniform int u_resolution;
 uniform float u_cfl;
 uniform float u_damping;
 uniform float u_amplitudeClamp;
+uniform float u_noiseThreshold;
 
 float loadHeight(ivec2 p) {
     ivec2 clamped = clamp(p, ivec2(0), ivec2(u_resolution - 1));
@@ -25,18 +26,27 @@ void main() {
     float hR = loadHeight(p + ivec2(1, 0));
     float hD = loadHeight(p + ivec2(0, -1));
     float hU = loadHeight(p + ivec2(0, 1));
+    float hLD = loadHeight(p + ivec2(-1, -1));
+    float hRD = loadHeight(p + ivec2(1, -1));
+    float hLU = loadHeight(p + ivec2(-1, 1));
+    float hRU = loadHeight(p + ivec2(1, 1));
 
     float laplacian = hL + hR + hD + hU - 4.0 * h;
     float velocity = (h - hPrev) * u_damping;
     float hNext = h + velocity + u_cfl * laplacian;
     float neighborAverage = (hL + hR + hD + hU) * 0.25;
+    float gaussian = (h * 4.0 + (hL + hR + hD + hU) * 2.0 + hLD + hRD + hLU + hRU) / 16.0;
     hNext = mix(hNext, neighborAverage, 0.008);
-    hNext -= h * 0.0015;
+    hNext = mix(hNext, gaussian, 0.020);
+    hNext -= h * 0.0018;
 
     float edgeDistance = min(min(p.x, p.y), min(u_resolution - 1 - p.x, u_resolution - 1 - p.y));
     float edgeFade = smoothstep(0.0, 10.0, edgeDistance);
     hNext *= mix(0.80, 0.996, edgeFade);
     hNext = clamp(hNext, -u_amplitudeClamp, u_amplitudeClamp);
+    if (abs(hNext) < u_noiseThreshold && abs(hNext - h) < u_noiseThreshold * 0.75) {
+        hNext = 0.0;
+    }
 
     if (isnan(hNext) || isinf(hNext)) {
         hNext = 0.0;

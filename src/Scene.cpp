@@ -13,6 +13,16 @@ void Scene::addEntity(const Entity& e) {
 }
 
 void Scene::update(float deltaTime, float currentTime, bool light2Moving) {
+    glm::vec3 waterCenter(0.0f);
+    bool hasWater = false;
+    for (const auto& e : entities) {
+        if (e.visible && e.type == WATER) {
+            waterCenter = e.position;
+            hasWater = true;
+            break;
+        }
+    }
+
     for (auto& e : entities) {
         if (e.name == "Dynamic Cube") e.rotation.y += 30 * deltaTime;
         if (e.name == "Advanced Sphere") e.rotation.y += 20 * deltaTime;
@@ -20,6 +30,13 @@ void Scene::update(float deltaTime, float currentTime, bool light2Moving) {
         // 我們改為比對 Advanced Sphere 來兼容 Imgui 加的邏輯或者是實體本身
         if (light2Moving && e.name == "Point Light") {
             e.position = glm::vec3(sin(currentTime)*3, 2, cos(currentTime)*3);
+        }
+        if (e.name == "Water Highlight Light") {
+            glm::vec3 center = hasWater ? waterCenter : glm::vec3(0.0f);
+            float radius = hasWater ? 2.65f : 2.6f;
+            float height = hasWater ? 1.85f : 3.2f;
+            float t = currentTime * 1.85f;
+            e.position = center + glm::vec3(cos(t) * radius, height + sin(currentTime * 2.4f) * 0.22f, sin(t) * radius);
         }
     }
 }

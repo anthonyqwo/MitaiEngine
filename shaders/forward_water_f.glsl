@@ -44,13 +44,26 @@ uniform float time;
 uniform float far_plane;
 uniform float u_shadowBias;
 uniform float u_pcfRadius;
+uniform bool u_light2CastsShadow;
 uniform bool u_debugRippleHeatmap;
 uniform vec2 u_screenSize;
 uniform int u_waterDebugMode;
 uniform float u_reflectionStrength;
 uniform float u_fresnelStrength;
+uniform float u_specularStrength;
+uniform float u_shininess;
+uniform float u_waterRoughness;
+uniform float u_normalStrength;
+uniform float u_crestHighlightStrength;
+uniform vec3 u_skyReflectionColor;
 uniform float u_waveSteepness;
 uniform float u_waterNormalStrength;
+uniform bool u_openBoxClipEnabled;
+uniform mat4 u_openBoxInverseModel;
+uniform float u_openBoxWallThickness;
+uniform float u_openBoxFloodLevel;
+uniform float u_internalWaterLocalHeight;
+uniform bool u_isInternalBoxWater;
 
 #include "gerstner_common.glsl"
 #include "ripple_common.glsl"
@@ -68,6 +81,18 @@ const vec2 poissonDisk[9] = vec2[](
     vec2(0.20340809, -0.38208752),
     vec2(0.74201624, 0.53906216)
 );
+
+bool insideOpenBoxInterior(vec3 worldPos) {
+    if (!u_openBoxClipEnabled) return false;
+
+    vec3 p = vec3(u_openBoxInverseModel * vec4(worldPos, 1.0));
+    float t = clamp(u_openBoxWallThickness, 0.0, 0.49);
+    vec3 q = abs(p);
+
+    bool insideInnerFootprint = q.x < 0.5 - t && q.z < 0.5 - t;
+    bool insideCavityHeight = p.y >= -0.5 + t && p.y <= 0.5;
+    return insideInnerFootprint && insideCavityHeight;
+}
 
 float ShadowCalculation(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir) {
     if(length(light1.color) < 0.01) return 0.0;
@@ -91,6 +116,7 @@ float ShadowCalculation(vec4 fragPosLightSpace, vec3 normal, vec3 lightDir) {
 }
 
 float PointShadowCalculation(vec3 fragPos, vec3 normal) {
+    if (!u_light2CastsShadow) return 0.0;
     vec3 fragToLight = fragPos - light2.position;
     float currentDepth = length(fragToLight);
     float bias = u_shadowBias * 10.0;
@@ -136,17 +162,26 @@ vec3 fresnelSchlickRoughness(float cosTheta, vec3 F0, float roughness) {
     return F0 + (max(vec3(1.0 - roughness), F0) - F0) * pow(clamp(1.0 - cosTheta, 0.0, 1.0), 5.0);
 }
 
+float waterSparkleNoise(vec2 worldXZ, vec3 normalWorld) {
+    vec2 p = worldXZ * 18.0 + normalWorld.xz * 7.0;
+    float a = sin(dot(p, vec2(12.9898, 78.233)) + time * 7.1);
+    float b = sin(dot(p, vec2(39.3467, 11.135)) - time * 5.3);
+    float c = sin(dot(p, vec2(73.156, 52.235)) + time * 3.7);
+    return smoothstep(0.42, 0.98, a * b * c * 0.5 + 0.5);
+}
+
 vec3 sampleScrollingWaterNormal(vec2 uv) {
-    float flowPulse = sin(time * 0.37) * 0.035;
-    vec2 uv1 = uv * 0.48 + vec2(time * 0.045, time * 0.018 + flowPulse);
-    vec2 uv2 = uv * 1.18 + vec2(time * -0.072, time * 0.052 - flowPulse);
+    float flowPulse = sin(time * 0.34) * 0.024;
+    vec2 uv1 = uv * 0.46 + vec2(time * 0.034, time * 0.015 + flowPulse);
+    vec2 uv2 = uv * 1.02 + vec2(time * -0.048, time * 0.034 - flowPulse);
 
     vec3 n1 = texture(normalMap, uv1).rgb * 2.0 - 1.0;
     vec3 n2 = texture(normalMap, uv2).rgb * 2.0 - 1.0;
 
-    vec2 slope1 = n1.xy / max(n1.z, 0.18);
-    vec2 slope2 = n2.xy / max(n2.z, 0.18);
-    vec2 slope = (slope1 + slope2 * 0.38) * (1.42 * max(u_waterNormalStrength, 0.0) * max(u_waveSteepness, 0.1));
+    vec2 slope1 = n1.xy / max(n1.z, 0.28);
+    vec2 slope2 = n2.xy / max(n2.z, 0.28);
+    vec2 slope = (slope1 + slope2 * 0.34) * (0.92 * clamp(u_waterNormalStrength, 0.0, 1.35) * clamp(u_normalStrength, 0.0, 2.0) * max(u_waveSteepness, 0.1));
+    slope = clamp(slope, vec2(-0.62), vec2(0.62));
 
     return normalize(vec3(slope, 1.0));
 }
@@ -157,6 +192,19 @@ void main() {
     }
 
     // 1. 採樣與 PBR 頻道解析
+    bool clippedByDryCavity = isWater && !u_isInternalBoxWater && insideOpenBoxInterior(fs_in.FragPos);
+    if (clippedByDryCavity && u_waterDebugMode == 8) {
+        FragColor = vec4(0.0, 1.0, 0.25, 1.0);
+        return;
+    }
+    if (clippedByDryCavity && u_waterDebugMode == 10) {
+        FragColor = vec4(1.0, 0.05, 0.02, 1.0);
+        return;
+    }
+    if (clippedByDryCavity) {
+        discard;
+    }
+
     vec3 texAlbedo = texture(albedoMap, fs_in.TexCoords).rgb;
     vec3 baseColor = pow(texAlbedo, vec3(2.2)) * objectColor;
     
@@ -167,10 +215,13 @@ void main() {
     float aoSample = texture(aoMap, fs_in.TexCoords).r * material.ambientStrength;
     vec3 emissive = pow(texture(emissiveMap, fs_in.TexCoords).rgb, vec3(2.2)) * 2.0; // 自發光增益
     
-    r = clamp(r, 0.04, 1.0);
+    r = isWater ? clamp(u_waterRoughness, 0.02, 0.95) : clamp(r, 0.04, 1.0);
 
     // 2. 法線處理
     vec3 N_geom = normalize(fs_in.Normal);
+    if (isWater && u_waterDebugMode == 14) {
+        N_geom = vec3(0.0, 1.0, 0.0);
+    }
     vec3 T = normalize(fs_in.Tangent);
     T = normalize(T - dot(T, N_geom) * N_geom);
     vec3 B = cross(N_geom, T);
@@ -179,9 +230,12 @@ void main() {
     vec3 N;
     if(isWater) {
         vec3 mixedNormal = sampleScrollingWaterNormal(fs_in.TexCoords);
-        vec3 rippleNormal = sampleRippleNormal(fs_in.FragPos.xz);
-        vec3 rippleCombined = combineWaterNormals(N_geom, rippleNormal);
-        N = normalize(mix(rippleCombined, normalize(TBN * mixedNormal), 0.78));
+        vec3 rippleNormal = sampleRippleNormalSmoothed(fs_in.FragPos.xz);
+        vec3 rippleCombined = (u_waterDebugMode == 13) ? N_geom : combineWaterNormals(N_geom, rippleNormal);
+        vec3 detailNormal = normalize(TBN * mixedNormal);
+        float detailBlend = (u_waterDebugMode == 12) ? 0.0 : 0.54;
+        N = normalize(mix(rippleCombined, detailNormal, detailBlend));
+        N = normalize(N_geom + (N - N_geom) * clamp(u_normalStrength, 0.0, 2.0));
     } else if(useNormalMap) {
         vec3 tangentNormal = texture(normalMap, fs_in.TexCoords).rgb * 2.0 - 1.0;
         tangentNormal.xy *= 1.5;
@@ -194,16 +248,17 @@ void main() {
     vec3 reflectN = isWater ? normalize(mix(N, N_geom, 0.08)) : N;
     vec3 R = reflect(-V, reflectN);
     float NoV = max(dot(N, V), 0.0);
-    float waterFresnel = isWater ? pow(clamp(1.0 - max(dot(V, N), 0.0), 0.0, 1.0), 5.0) * u_fresnelStrength : 0.0;
+    float waterF0 = 0.02;
+    float waterFresnel = isWater ? (waterF0 + (1.0 - waterF0) * pow(clamp(1.0 - NoV, 0.0, 1.0), 5.0)) * u_fresnelStrength : 0.0;
     waterFresnel = clamp(waterFresnel, 0.0, 1.0);
     float waveCrest = 0.0;
     float waveSlope = 0.0;
     if(isWater) {
         float geomSlope = clamp(1.0 - abs(N_geom.y), 0.0, 1.0);
         float detailSlope = clamp(1.0 - abs(N.y), 0.0, 1.0);
-        waveSlope = max(geomSlope, detailSlope * 0.55);
-        float rippleAbs = abs(sampleRippleHeight(fs_in.FragPos.xz));
-        waveCrest = clamp(rippleAbs * 8.5 + waveSlope * 1.9 + 0.10, 0.0, 1.0);
+        waveSlope = max(geomSlope, detailSlope * 0.48);
+        float rippleAbs = abs(sampleRippleHeightVisual(fs_in.FragPos.xz));
+        waveCrest = clamp((rippleAbs * 7.2 + waveSlope * 1.55 + 0.08) * u_crestHighlightStrength, 0.0, 1.0);
     }
 
     // 3. 材質與 F0
@@ -216,16 +271,35 @@ void main() {
     }
     
     float specIntensity = reflectivity * 8.0; 
-    if(isWater) specIntensity *= mix(3.4, 10.5, waterFresnel) * (1.0 + waveCrest * 1.45 + waveSlope * 0.55) * u_reflectionStrength;
+    if(isWater) specIntensity = reflectivity * mix(2.2, 5.0, waterFresnel) * (1.0 + waveCrest * 0.65 + waveSlope * 0.32) * u_reflectionStrength;
     vec3 F0 = isWater ? vec3(0.02) : mix(vec3(0.04), albedo, m);
 
     // 4. 直接光照
     vec3 directLo = vec3(0.0);
+    float waterMainNdotL = 0.0;
+    float waterMainNdotH = 0.0;
+    float waterSpecularTerm = 0.0;
+    float waterSpecularDebug = 0.0;
+    vec3 waterSpecularAdd = vec3(0.0);
+    float waterSparkle = isWater ? waterSparkleNoise(fs_in.FragPos.xz, N) : 0.0;
     // Light 1 (Sun) - Directional Light
     if(length(light1.color) > 0.01) {
-        vec3 L = normalize(light1.position); vec3 H = normalize(V + L);
+        vec3 L = normalize(isWater ? (light1.position - fs_in.FragPos) : light1.position);
+        vec3 H = normalize(V + L);
         float shadow = ShadowCalculation(fs_in.FragPosLightSpace, N, L);
         float NdotL = max(dot(N, L), 0.0);
+        float NdotH = max(dot(N, H), 0.0);
+        if (isWater) {
+            waterMainNdotL = NdotL;
+            waterMainNdotH = NdotH;
+            float broadSpec = pow(NdotH, 20.0) * 0.18;
+            float sharpSpec = pow(NdotH, clamp(u_shininess, 1.0, 512.0));
+            float glintSpec = pow(NdotH, 52.0) * waterSparkle * (0.15 + waveSlope * 1.35 + waveCrest * 0.65);
+            float phongSpec = (broadSpec + sharpSpec * 0.78 + glintSpec * 1.25) * NdotL;
+            waterSpecularTerm = phongSpec * u_specularStrength * mix(0.55, 1.35, waterFresnel) * (1.0 + waveCrest * 0.75 + waveSlope * 0.38);
+            waterSpecularDebug += waterSpecularTerm;
+            waterSpecularAdd += light1.color * waterSpecularTerm * (1.0 - shadow);
+        }
         float NDF = DistributionGGX(N, H, r); 
         float G = GeometrySmith(N, V, L, r); 
         vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
@@ -240,12 +314,23 @@ void main() {
         float atten = 1.0 / (dist * dist + 0.001);
         float shadow = PointShadowCalculation(fs_in.FragPos, N);
         float NdotL = max(dot(N, L), 0.0);
+        float NdotH = max(dot(N, H), 0.0);
+        if (isWater) {
+            float broadSpec = pow(NdotH, 18.0) * 0.22;
+            float sharpSpec = pow(NdotH, clamp(u_shininess * 0.72, 1.0, 512.0));
+            float glintSpec = pow(NdotH, 46.0) * waterSparkle * (0.25 + waveSlope * 1.65 + waveCrest * 0.85);
+            float phongSpec = (broadSpec + sharpSpec * 0.92 + glintSpec * 1.65) * NdotL;
+            float pointSpecTerm = atten * 72.0 * phongSpec * u_specularStrength * mix(0.48, 1.18, waterFresnel) * (1.0 - shadow);
+            waterSpecularDebug += pointSpecTerm;
+            waterSpecularAdd += light2.color * pointSpecTerm;
+        }
         float NDF = DistributionGGX(N, H, r); 
         float G = GeometrySmith(N, V, L, r); 
         vec3 F = fresnelSchlick(max(dot(H, V), 0.0), F0);
         vec3 spec = (NDF * G * F) / (4.0 * NoV * NdotL + 0.001);
         vec3 kD = (vec3(1.0) - F) * (1.0 - m);
-        directLo += (kD * albedo / PI + spec * specIntensity) * light2.color * atten * NdotL * (1.0 - shadow) * 100.0;
+        float waterPointScale = isWater ? 58.0 : 100.0;
+        directLo += (kD * albedo / PI + spec * specIntensity) * light2.color * atten * NdotL * (1.0 - shadow) * waterPointScale;
     }
 
     // 5. 間接光照 (IBL)
@@ -304,15 +389,21 @@ void main() {
         scatterTint = mix(scatterTint, deepTint, smoothstep(0.42, 1.0, waterDepthBlend) * 0.62);
         scatterTint = mix(scatterTint, vec3(0.72, 0.95, 0.98), waveCrest * 0.24);
 
-        vec3 skyReflection = textureLod(prefilterMap, R, mix(0.0, 1.25, r)).rgb;
+        float waterR = clamp(u_waterRoughness, 0.02, 0.95);
+        vec3 skyReflection = textureLod(prefilterMap, R, mix(0.0, 3.25, waterR)).rgb;
         skyReflection = pow(max(skyReflection, vec3(0.0)), vec3(1.0 / 2.2));
-        vec3 crestHighlight = vec3(0.75, 0.92, 1.0) * (waveCrest * (0.24 + waterFresnel * 0.46) * u_reflectionStrength);
+        skyReflection = max(skyReflection, u_skyReflectionColor * (0.24 + waterFresnel * 0.55));
+        vec3 crestHighlight = vec3(0.72, 0.86, 0.95) * (waveCrest * (0.14 + waterFresnel * 0.32 + waterSparkle * 0.08) * u_reflectionStrength);
         vec3 reflectionTint = skyReflection + crestHighlight;
         vec3 attenuatedTransmission = scatterTint * mix(vec3(1.0), waterTransmission, 0.32);
         vec3 scatteredVolume = mix(attenuatedTransmission, scatterTint, waterFog * 0.42);
         color = mix(scatteredVolume, color, 0.22);
-        float reflectionAmount = clamp((0.20 + waterFresnel * 0.78 + waveCrest * 0.18 + waveSlope * 0.08) * u_reflectionStrength, 0.0, 0.92);
+        float reflectionAmount = clamp((0.12 + waterFresnel * 0.68 + waveCrest * 0.08 + waveSlope * 0.04) * u_reflectionStrength, 0.0, 0.78);
         color = mix(color, reflectionTint, reflectionAmount);
+        vec3 specularHighlight = waterSpecularAdd / (waterSpecularAdd + vec3(1.6));
+        specularHighlight = pow(max(specularHighlight, vec3(0.0)), vec3(1.0 / 2.2));
+        color += specularHighlight * (0.34 + waterFresnel * 0.82 + waterSparkle * 0.12);
+        color = min(color, vec3(1.12));
         color *= mix(1.08, 0.82, waterAbsorption);
 
         float baseAlpha = 0.62;
@@ -333,6 +424,24 @@ void main() {
         } else if (u_waterDebugMode == 4) {
             FragColor = vec4(vec3(waterFresnel), 1.0);
             return;
+        } else if (u_waterDebugMode == 16) {
+            FragColor = vec4(N * 0.5 + 0.5, 1.0);
+            return;
+        } else if (u_waterDebugMode == 17) {
+            FragColor = vec4(vec3(waterMainNdotL), 1.0);
+            return;
+        } else if (u_waterDebugMode == 18) {
+            FragColor = vec4(vec3(waterMainNdotH), 1.0);
+            return;
+        } else if (u_waterDebugMode == 19) {
+            FragColor = vec4(vec3(clamp(waterSpecularDebug, 0.0, 1.0)), 1.0);
+            return;
+        } else if (u_waterDebugMode == 20) {
+            FragColor = vec4(reflectionTint * reflectionAmount, 1.0);
+            return;
+        } else if (u_waterDebugMode == 21) {
+            FragColor = vec4(color, 1.0);
+            return;
         } else if (u_waterDebugMode == 5) {
             float rippleH = sampleRippleHeight(fs_in.FragPos.xz);
             vec3 heatColor = rippleH >= 0.0 ? vec3(0.05, 0.38, 1.0) : vec3(1.0, 0.08, 0.03);
@@ -352,11 +461,39 @@ void main() {
             float heat = clamp(abs(physicsRipple) * 42.0, 0.0, 1.0);
             FragColor = vec4(mix(vec3(0.02), signColor, heat), 1.0);
             return;
+        } else if (u_waterDebugMode == 9) {
+            if (u_isInternalBoxWater) {
+                float fillBand = clamp(u_openBoxFloodLevel, 0.0, 1.0);
+                FragColor = vec4(mix(vec3(0.0, 0.18, 0.45), vec3(0.0, 0.72, 1.0), fillBand), 1.0);
+            } else {
+                FragColor = vec4(0.0, 0.04, 0.08, 1.0);
+            }
+            return;
+        } else if (u_waterDebugMode == 10) {
+            if (u_isInternalBoxWater) {
+                FragColor = vec4(0.0, 0.25, 1.0, 1.0);
+            } else {
+                FragColor = vec4(0.0, 0.55, 0.75, 1.0);
+            }
+            return;
+        } else if (u_waterDebugMode == 11) {
+            float rawHeight = fs_in.FragPos.y;
+            FragColor = vec4(vec3(clamp((rawHeight - 3.65) / 0.85, 0.0, 1.0)), 1.0);
+            return;
+        } else if (u_waterDebugMode == 15) {
+            vec3 reconstructed = sampleRippleNormalSmoothed(fs_in.FragPos.xz) * 0.5 + 0.5;
+            FragColor = vec4(reconstructed, 1.0);
+            return;
         }
     } else if (!isLightSource) {
         float F_fresnel = pow(1.0 - NoV, 5.0);
         alpha = mix(0.15, 0.8, F_fresnel);
         alpha = clamp(alpha * (reflectivity + 0.1), 0.05, 0.95);
+    }
+
+    if (isWater) {
+        FragColor = vec4(color * alpha, alpha);
+        return;
     }
 
     FragColor = vec4(color, alpha);

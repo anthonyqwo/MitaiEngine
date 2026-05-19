@@ -7,6 +7,7 @@ uniform float u_rippleTexelWorldSize;
 uniform float u_visualRippleScale;
 uniform float u_physicsRippleScale;
 uniform float u_rippleNormalStrength;
+uniform float u_rippleNoiseThreshold;
 
 vec2 rippleWorldToUv(vec2 worldXZ) {
     return (worldXZ - u_rippleOrigin) / u_rippleWorldSize;
@@ -20,7 +21,8 @@ float sampleRippleHeight(vec2 worldXZ) {
     if (!u_useRipple) return 0.0;
     vec2 uv = rippleWorldToUv(worldXZ);
     if (!rippleInside(uv)) return 0.0;
-    return texture(rippleHeightTex, uv).r;
+    float h = texture(rippleHeightTex, uv).r;
+    return abs(h) < u_rippleNoiseThreshold ? 0.0 : h;
 }
 
 float sampleRippleHeightSmoothed(vec2 worldXZ) {
@@ -35,17 +37,26 @@ float sampleRippleHeightSmoothed(vec2 worldXZ) {
                      sampleRippleHeight(worldXZ + vec2(stepSize, -stepSize)) +
                      sampleRippleHeight(worldXZ + vec2(-stepSize, stepSize)) +
                      sampleRippleHeight(worldXZ + vec2(-stepSize, -stepSize));
-    return (center + axial * 2.0 + diagonal) / 16.0;
+    float h = (center + axial * 2.0 + diagonal) / 16.0;
+    return abs(h) < u_rippleNoiseThreshold ? 0.0 : h;
+}
+
+float sampleRippleHeightVisual(vec2 worldXZ) {
+    float raw = sampleRippleHeight(worldXZ);
+    float filtered = sampleRippleHeightSmoothed(worldXZ);
+    return mix(filtered, raw, 0.42);
 }
 
 vec3 sampleRippleNormal(vec2 worldXZ) {
     if (!u_useRipple) return vec3(0.0, 1.0, 0.0);
     float stepSize = max(u_rippleTexelWorldSize, 0.001);
-    float hL = sampleRippleHeight(worldXZ - vec2(stepSize, 0.0));
-    float hR = sampleRippleHeight(worldXZ + vec2(stepSize, 0.0));
-    float hD = sampleRippleHeight(worldXZ - vec2(0.0, stepSize));
-    float hU = sampleRippleHeight(worldXZ + vec2(0.0, stepSize));
-    return normalize(vec3(-(hR - hL), 2.0 * stepSize, -(hU - hD)));
+    float hL = sampleRippleHeightVisual(worldXZ - vec2(stepSize, 0.0));
+    float hR = sampleRippleHeightVisual(worldXZ + vec2(stepSize, 0.0));
+    float hD = sampleRippleHeightVisual(worldXZ - vec2(0.0, stepSize));
+    float hU = sampleRippleHeightVisual(worldXZ + vec2(0.0, stepSize));
+    float strength = clamp(u_rippleNormalStrength, 0.0, 1.25);
+    vec2 slope = clamp(vec2(hR - hL, hU - hD) * strength, vec2(-0.13), vec2(0.13));
+    return normalize(vec3(-slope.x, 2.0 * stepSize, -slope.y));
 }
 
 vec3 sampleRippleNormalSmoothed(vec2 worldXZ) {
@@ -55,12 +66,14 @@ vec3 sampleRippleNormalSmoothed(vec2 worldXZ) {
     float hR = sampleRippleHeightSmoothed(worldXZ + vec2(stepSize, 0.0));
     float hD = sampleRippleHeightSmoothed(worldXZ - vec2(0.0, stepSize));
     float hU = sampleRippleHeightSmoothed(worldXZ + vec2(0.0, stepSize));
-    return normalize(vec3(-(hR - hL), 2.0 * stepSize, -(hU - hD)));
+    float strength = clamp(u_rippleNormalStrength * 0.82, 0.0, 1.0);
+    vec2 slope = clamp(vec2(hR - hL, hU - hD) * strength, vec2(-0.09), vec2(0.09));
+    return normalize(vec3(-slope.x, 2.0 * stepSize, -slope.y));
 }
 
 vec3 combineWaterNormals(vec3 oceanNormal, vec3 rippleNormal) {
     vec3 rippleSlope = vec3(rippleNormal.x, 0.0, rippleNormal.z);
-    return normalize(oceanNormal + rippleSlope * (0.85 * max(u_rippleNormalStrength, 0.0)));
+    return normalize(oceanNormal + rippleSlope * (0.72 * clamp(u_rippleNormalStrength, 0.0, 1.25)));
 }
 
 struct WaterSurface {
@@ -81,9 +94,9 @@ WaterSurface queryWaterSurface(vec2 worldXZ, float baseWaterLevel, float waveTim
 
 WaterSurface queryWaterSurfaceFiltered(vec2 worldXZ, float baseWaterLevel, float waveTime, bool smoothRipples) {
     if (!u_enableWaterWaves) {
-        float rippleHeight = smoothRipples ? sampleRippleHeightSmoothed(worldXZ) * u_physicsRippleScale : sampleRippleHeight(worldXZ) * u_visualRippleScale;
+        float rippleHeight = (smoothRipples ? sampleRippleHeightSmoothed(worldXZ) : sampleRippleHeightVisual(worldXZ)) * (smoothRipples ? u_physicsRippleScale : u_visualRippleScale);
         vec3 rippleNormal = smoothRipples ? sampleRippleNormalSmoothed(worldXZ) : sampleRippleNormal(worldXZ);
-        rippleNormal = normalize(mix(vec3(0.0, 1.0, 0.0), rippleNormal, smoothRipples ? min(u_physicsRippleScale, 0.45) : min(u_rippleNormalStrength, 1.6)));
+        rippleNormal = normalize(mix(vec3(0.0, 1.0, 0.0), rippleNormal, smoothRipples ? min(u_physicsRippleScale, 0.24) : min(u_rippleNormalStrength, 1.05)));
 
         WaterSurface flatSurface;
         flatSurface.position = vec3(worldXZ.x, baseWaterLevel, worldXZ.y);
@@ -98,9 +111,9 @@ WaterSurface queryWaterSurfaceFiltered(vec2 worldXZ, float baseWaterLevel, float
     }
 
     GerstnerSurface ocean = evaluateGerstnerSurface(vec3(worldXZ.x, baseWaterLevel, worldXZ.y), waveTime);
-    float rippleHeight = smoothRipples ? sampleRippleHeightSmoothed(ocean.position.xz) * u_physicsRippleScale : sampleRippleHeight(ocean.position.xz) * u_visualRippleScale;
+    float rippleHeight = (smoothRipples ? sampleRippleHeightSmoothed(ocean.position.xz) : sampleRippleHeightVisual(ocean.position.xz)) * (smoothRipples ? u_physicsRippleScale : u_visualRippleScale);
     vec3 rippleNormal = smoothRipples ? sampleRippleNormalSmoothed(ocean.position.xz) : sampleRippleNormal(ocean.position.xz);
-    rippleNormal = normalize(mix(vec3(0.0, 1.0, 0.0), rippleNormal, smoothRipples ? min(u_physicsRippleScale, 0.45) : min(u_rippleNormalStrength, 1.6)));
+    rippleNormal = normalize(mix(vec3(0.0, 1.0, 0.0), rippleNormal, smoothRipples ? min(u_physicsRippleScale, 0.24) : min(u_rippleNormalStrength, 1.05)));
 
     WaterSurface surface;
     surface.position = ocean.position;

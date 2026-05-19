@@ -74,11 +74,12 @@ void RippleSystem::update(float deltaTime, const std::vector<RippleImpulse>& imp
         if (impulse.radius <= 0.001f || !std::isfinite(impulse.strength)) continue;
 
         RippleImpulse clamped = impulse;
-        clamped.radius = glm::clamp(clamped.radius, 0.10f, 1.5f);
-        clamped.strength = glm::clamp(clamped.strength * params.rippleAmplitude, -0.080f, 0.035f);
+        clamped.radius = glm::clamp(clamped.radius, 0.12f, 1.5f);
+        clamped.strength = glm::clamp(clamped.strength * params.rippleAmplitude, -0.045f, 0.024f);
+        if (glm::abs(clamped.strength) < 0.00035f) continue;
         float energyCost = glm::abs(clamped.strength) * clamped.radius * clamped.radius;
         if (energyCost <= 0.00001f) continue;
-        float energyBudget = 0.22f * glm::clamp(params.rippleAmplitude, 0.2f, 1.3f);
+        float energyBudget = 0.16f * glm::clamp(params.rippleAmplitude, 0.2f, 1.3f);
         if (impulseEnergy + energyCost > energyBudget) {
             float remaining = glm::max(0.0f, energyBudget - impulseEnergy);
             if (remaining <= 0.0001f) break;
@@ -104,7 +105,7 @@ void RippleSystem::update(float deltaTime, const std::vector<RippleImpulse>& imp
         injectShader->setInt("u_resolution", gridResolution);
         injectShader->setVec2("u_origin", worldOrigin);
         injectShader->setFloat("u_worldSize", worldSize);
-        injectShader->setFloat("u_maxRippleHeight", glm::clamp(params.maxRippleHeight, 0.04f, 0.10f));
+        injectShader->setFloat("u_maxRippleHeight", glm::clamp(params.maxRippleHeight, 0.025f, 0.08f));
         glBindImageTexture(0, heightTextures[currentIndex], 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
         glBindImageTexture(1, heightTextures[previousIndex], 0, GL_FALSE, 0, GL_READ_WRITE, GL_R32F);
         int groups = (gridResolution + 15) / 16;
@@ -114,15 +115,16 @@ void RippleSystem::update(float deltaTime, const std::vector<RippleImpulse>& imp
 
     if (stepShader) {
         float dt = glm::clamp(deltaTime, 0.0f, 0.033f);
-        float waveSpeed = params.ripplePropagationSpeed;
+        float waveSpeed = glm::clamp(params.ripplePropagationSpeed, 0.5f, 3.2f);
         float texel = texelWorldSize();
-        float cfl = glm::clamp((waveSpeed * dt / texel) * (waveSpeed * dt / texel), 0.0f, 0.44f);
+        float cfl = glm::clamp((waveSpeed * dt / texel) * (waveSpeed * dt / texel), 0.0f, 0.30f);
 
         stepShader->use();
         stepShader->setInt("u_resolution", gridResolution);
         stepShader->setFloat("u_cfl", cfl);
-        stepShader->setFloat("u_damping", params.rippleDamping);
-        stepShader->setFloat("u_amplitudeClamp", glm::clamp(params.maxRippleHeight, 0.04f, 0.10f));
+        stepShader->setFloat("u_damping", glm::clamp(params.rippleDamping, 0.955f, 0.992f));
+        stepShader->setFloat("u_amplitudeClamp", glm::clamp(params.maxRippleHeight, 0.025f, 0.08f));
+        stepShader->setFloat("u_noiseThreshold", glm::clamp(params.rippleNoiseThreshold, 0.0f, 0.005f));
         glBindImageTexture(0, heightTextures[previousIndex], 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
         glBindImageTexture(1, heightTextures[currentIndex], 0, GL_FALSE, 0, GL_READ_ONLY, GL_R32F);
         glBindImageTexture(2, heightTextures[nextIndex], 0, GL_FALSE, 0, GL_WRITE_ONLY, GL_R32F);
@@ -148,8 +150,15 @@ void RippleSystem::bindRippleUniforms(const Shader& shader, int textureUnit, boo
     shader.setFloat("u_visualRippleScale", ripple.params.visualRippleScale);
     shader.setFloat("u_physicsRippleScale", ripple.params.physicsRippleScale);
     shader.setFloat("u_rippleNormalStrength", ripple.params.rippleNormalStrength);
+    shader.setFloat("u_rippleNoiseThreshold", ripple.params.rippleNoiseThreshold);
     shader.setFloat("u_reflectionStrength", ripple.params.reflectionStrength);
     shader.setFloat("u_fresnelStrength", ripple.params.fresnelStrength);
+    shader.setFloat("u_specularStrength", ripple.params.specularStrength);
+    shader.setFloat("u_shininess", ripple.params.shininess);
+    shader.setFloat("u_waterRoughness", ripple.params.waterRoughness);
+    shader.setFloat("u_normalStrength", ripple.params.normalStrength);
+    shader.setFloat("u_crestHighlightStrength", ripple.params.crestHighlightStrength);
+    shader.setVec3("u_skyReflectionColor", ripple.params.skyReflectionColor);
     shader.setFloat("u_waveSteepness", ripple.params.waveSteepness);
     shader.setFloat("u_waterNormalStrength", ripple.params.waterNormalStrength);
 

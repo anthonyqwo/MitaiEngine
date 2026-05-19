@@ -22,6 +22,10 @@ std::unordered_map<const Entity*, std::vector<float>> g_filteredBuoyancyHeights;
 
 constexpr float kRippleContactDepthThreshold = 0.010f;
 constexpr float kRippleDebugPressureScale = 1000.0f * 9.81f * 0.75f;
+constexpr float kOpenBoxWallThickness = 0.05f;
+constexpr float kRippleHorizontalSpeedThreshold = 0.065f;
+constexpr float kRippleVerticalSpeedThreshold = 0.055f;
+constexpr float kRippleImpulseThreshold = 0.00035f;
 
 glm::vec3 clampVector(glm::vec3 v, float maxLength) {
     float len = glm::length(v);
@@ -30,15 +34,17 @@ glm::vec3 clampVector(glm::vec3 v, float maxLength) {
     return (v / len) * maxLength;
 }
 
-void addRippleImpulse(std::vector<RippleImpulse>& impulses, glm::vec3 position, float radius, float strength) {
-    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z) || !std::isfinite(strength)) return;
-    if (position.x < -5.8f || position.x > 5.8f || position.z < -5.8f || position.z > 5.8f) return;
+bool addRippleImpulse(std::vector<RippleImpulse>& impulses, glm::vec3 position, float radius, float strength) {
+    if (!std::isfinite(position.x) || !std::isfinite(position.y) || !std::isfinite(position.z) || !std::isfinite(strength)) return false;
+    if (position.x < -5.8f || position.x > 5.8f || position.z < -5.8f || position.z > 5.8f) return false;
+    if (glm::abs(strength) < kRippleImpulseThreshold) return false;
 
     RippleImpulse impulse;
     impulse.position = position;
-    impulse.radius = glm::clamp(radius, 0.10f, 1.5f);
-    impulse.strength = glm::clamp(strength, -0.080f, 0.035f);
+    impulse.radius = glm::clamp(radius, 0.12f, 1.5f);
+    impulse.strength = glm::clamp(strength, -0.045f, 0.024f);
     impulses.push_back(impulse);
+    return true;
 }
 
 void addSurfaceRippleImpulse(Entity& e,
@@ -47,17 +53,23 @@ void addSurfaceRippleImpulse(Entity& e,
                              float radius,
                              float strength,
                              float pressure) {
-    addRippleImpulse(impulses, position, radius, strength);
+    if (!addRippleImpulse(impulses, position, radius, strength)) return;
     e.debugRippleInjectionPoints.push_back(glm::vec3(position.x, 4.0f, position.z));
-    e.debugRippleInjectionRadii.push_back(glm::clamp(radius, 0.10f, 1.5f));
+    e.debugRippleInjectionRadii.push_back(glm::clamp(radius, 0.12f, 1.5f));
     e.debugRippleInjectionPressures.push_back(glm::max(pressure, 0.0f));
-    e.debugRippleInjectionStrengths.push_back(glm::clamp(strength, -0.080f, 0.035f));
+    e.debugRippleInjectionStrengths.push_back(glm::clamp(strength, -0.045f, 0.024f));
 }
 
 struct BuoyantBox {
     glm::vec3 center;
     glm::vec3 halfExtents;
     glm::vec3 axes[3];
+};
+
+struct WallContact {
+    glm::vec3 point;
+    glm::vec3 normal;
+    float depth;
 };
 
 BuoyantBox makeBuoyantBox(const Entity& e) {
@@ -73,6 +85,199 @@ BuoyantBox makeBuoyantBox(const Entity& e) {
 
 float inverseMass(const Entity& e) {
     return (e.mass > 0.001f) ? (1.0f / e.mass) : 0.0f;
+}
+
+glm::mat3 inverseWorldInertia(const glm::quat& orientation, glm::vec3 localInertia) {
+    localInertia = glm::max(localInertia, glm::vec3(0.001f));
+    glm::mat3 R = glm::mat3_cast(orientation);
+    glm::mat3 invLocal(1.0f);
+    invLocal[0][0] = 1.0f / localInertia.x;
+    invLocal[1][1] = 1.0f / localInertia.y;
+    invLocal[2][2] = 1.0f / localInertia.z;
+    return R * invLocal * glm::transpose(R);
+}
+
+void clearWallDebug(Entity& e) {
+    e.debugWallContactPoints.clear();
+    e.debugWallContactNormals.clear();
+    e.debugWallCorrectionVectors.clear();
+    e.debugWallImpulseVectors.clear();
+    e.debugWallTangentialVelocities.clear();
+    e.debugWallPenetrationDepths.clear();
+    e.debugWallNormalImpulses.clear();
+    e.debugWallFrictionImpulses.clear();
+}
+
+void addWallPlaneContact(std::vector<WallContact>& contacts, glm::vec3 point, glm::vec3 normal, float depth) {
+    if (depth <= 0.0f || glm::dot(normal, normal) < 0.000001f) return;
+    contacts.push_back({ point, glm::normalize(normal), depth });
+}
+
+std::vector<WallContact> collectTankWallContacts(const Entity& e) {
+    constexpr float minX = -5.0f;
+    constexpr float maxX = 5.0f;
+    constexpr float minY = 0.0f;
+    constexpr float minZ = -5.0f;
+    constexpr float maxZ = 5.0f;
+
+    std::vector<WallContact> contacts;
+    if (e.buoyancyType == 0) {
+        float r = e.radius;
+        glm::vec3 c = e.position;
+        addWallPlaneContact(contacts, c + glm::vec3(0.0f, -r, 0.0f), glm::vec3(0, 1, 0), minY - (c.y - r));
+        addWallPlaneContact(contacts, c + glm::vec3(-r, 0.0f, 0.0f), glm::vec3(1, 0, 0), minX - (c.x - r));
+        addWallPlaneContact(contacts, c + glm::vec3(r, 0.0f, 0.0f), glm::vec3(-1, 0, 0), (c.x + r) - maxX);
+        addWallPlaneContact(contacts, c + glm::vec3(0.0f, 0.0f, -r), glm::vec3(0, 0, 1), minZ - (c.z - r));
+        addWallPlaneContact(contacts, c + glm::vec3(0.0f, 0.0f, r), glm::vec3(0, 0, -1), (c.z + r) - maxZ);
+        return contacts;
+    }
+
+    glm::vec3 half = e.scale * 0.5f;
+    std::vector<glm::vec3> localSamples;
+    localSamples.reserve(26);
+
+    for (int xi = -1; xi <= 1; xi += 2) {
+        for (int yi = -1; yi <= 1; yi += 2) {
+            for (int zi = -1; zi <= 1; zi += 2) {
+                localSamples.push_back(glm::vec3(float(xi) * half.x, float(yi) * half.y, float(zi) * half.z));
+            }
+        }
+    }
+
+    localSamples.push_back(glm::vec3(-half.x, 0.0f, 0.0f));
+    localSamples.push_back(glm::vec3( half.x, 0.0f, 0.0f));
+    localSamples.push_back(glm::vec3(0.0f, -half.y, 0.0f));
+    localSamples.push_back(glm::vec3(0.0f,  half.y, 0.0f));
+    localSamples.push_back(glm::vec3(0.0f, 0.0f, -half.z));
+    localSamples.push_back(glm::vec3(0.0f, 0.0f,  half.z));
+
+    for (int sx = -1; sx <= 1; sx += 2) {
+        for (int sz = -1; sz <= 1; sz += 2) {
+            localSamples.push_back(glm::vec3(float(sx) * half.x, -half.y, float(sz) * half.z));
+            localSamples.push_back(glm::vec3(float(sx) * half.x, 0.0f, float(sz) * half.z));
+        }
+    }
+
+    for (const glm::vec3& local : localSamples) {
+        glm::vec3 p = e.position + e.orientation * local;
+        addWallPlaneContact(contacts, p, glm::vec3(0, 1, 0), minY - p.y);
+        addWallPlaneContact(contacts, p, glm::vec3(1, 0, 0), minX - p.x);
+        addWallPlaneContact(contacts, p, glm::vec3(-1, 0, 0), p.x - maxX);
+        addWallPlaneContact(contacts, p, glm::vec3(0, 0, 1), minZ - p.z);
+        addWallPlaneContact(contacts, p, glm::vec3(0, 0, -1), p.z - maxZ);
+    }
+
+    return contacts;
+}
+
+void solveTankWallContacts(Entity& e, glm::vec3& worldCoM, glm::vec3 coMLocal, glm::vec3 localInertia, float mass) {
+    if (mass <= 0.001f) return;
+
+    constexpr int solverIterations = 6;
+    constexpr float slop = 0.010f;
+    constexpr float correctionPercent = 0.40f;
+    constexpr float restitution = 0.05f;
+    constexpr float staticFriction = 0.34f;
+    constexpr float dynamicFriction = 0.24f;
+    constexpr float maxNormalImpulsePerContact = 40.0f;
+    constexpr float maxAngularImpulse = 8.0f;
+    float invMass = 1.0f / mass;
+
+    for (int iteration = 0; iteration < solverIterations; ++iteration) {
+        std::vector<WallContact> contacts = collectTankWallContacts(e);
+        if (contacts.empty()) break;
+
+        float correctionShare = 1.0f / glm::max(1.0f, float(contacts.size()));
+        glm::mat3 invIWorld = inverseWorldInertia(e.orientation, localInertia);
+
+        for (const WallContact& c : contacts) {
+            glm::vec3 r = c.point - worldCoM;
+            glm::vec3 vContact = e.velocity + glm::cross(e.angularVelocity, r);
+            float vn = glm::dot(vContact, c.normal);
+
+            glm::vec3 normalImpulseVec(0.0f);
+            float normalImpulseMag = 0.0f;
+            if (vn < 0.0f) {
+                glm::vec3 rn = glm::cross(r, c.normal);
+                float angularDenom = glm::dot(c.normal, glm::cross(invIWorld * rn, r));
+                float denom = invMass + angularDenom;
+                if (denom > 0.000001f) {
+                    float eRest = (glm::abs(vn) > 1.0f) ? restitution : 0.0f;
+                    normalImpulseMag = glm::min((-(1.0f + eRest) * vn) / denom, maxNormalImpulsePerContact);
+                    normalImpulseVec = normalImpulseMag * c.normal;
+                    e.velocity += normalImpulseVec * invMass;
+                    e.angularVelocity += clampVector(invIWorld * glm::cross(r, normalImpulseVec), maxAngularImpulse);
+                }
+            }
+
+            vContact = e.velocity + glm::cross(e.angularVelocity, r);
+            glm::vec3 tangentVelocity = vContact - glm::dot(vContact, c.normal) * c.normal;
+            float tangentSpeed = glm::length(tangentVelocity);
+            glm::vec3 frictionImpulseVec(0.0f);
+            float frictionImpulseMag = 0.0f;
+            if (tangentSpeed > 0.0005f && normalImpulseMag > 0.0f) {
+                glm::vec3 tangent = tangentVelocity / tangentSpeed;
+                glm::vec3 rt = glm::cross(r, tangent);
+                float denomT = invMass + glm::dot(tangent, glm::cross(invIWorld * rt, r));
+                if (denomT > 0.000001f) {
+                    float desiredFriction = tangentSpeed / denomT;
+                    float maxStatic = staticFriction * normalImpulseMag;
+                    frictionImpulseMag = desiredFriction <= maxStatic ? desiredFriction : dynamicFriction * normalImpulseMag;
+                    frictionImpulseVec = -frictionImpulseMag * tangent;
+                    e.velocity += frictionImpulseVec * invMass;
+                    e.angularVelocity += clampVector(invIWorld * glm::cross(r, frictionImpulseVec), maxAngularImpulse * 0.5f);
+                }
+            }
+
+            float correctionDepth = glm::max(c.depth - slop, 0.0f);
+            glm::vec3 correction = c.normal * (correctionDepth * correctionPercent * correctionShare);
+            worldCoM += correction;
+            e.position = worldCoM - e.orientation * coMLocal;
+
+            if (iteration == solverIterations - 1 || c.depth > slop) {
+                e.debugWallContactPoints.push_back(c.point);
+                e.debugWallContactNormals.push_back(c.normal);
+                e.debugWallCorrectionVectors.push_back(correction);
+                e.debugWallImpulseVectors.push_back(normalImpulseVec);
+                e.debugWallTangentialVelocities.push_back(tangentVelocity);
+                e.debugWallPenetrationDepths.push_back(c.depth);
+                e.debugWallNormalImpulses.push_back(normalImpulseMag);
+                e.debugWallFrictionImpulses.push_back(frictionImpulseMag);
+            }
+        }
+
+        e.velocity = clampVector(e.velocity, 10.0f);
+        e.angularVelocity = clampVector(e.angularVelocity, (e.buoyancyType == 2) ? 3.5f : 6.0f);
+    }
+}
+
+float estimateOpenBoxCellDisplacementWeight(glm::vec3 localMin, glm::vec3 localMax, glm::vec3 halfExtents, float floodLevel) {
+    constexpr int subSamples = 3;
+    constexpr float invSampleCount = 1.0f / float(subSamples * subSamples * subSamples);
+    float materialFraction = 0.0f;
+
+    for (int sx = 0; sx < subSamples; ++sx) {
+        float tx = (float(sx) + 0.5f) / float(subSamples);
+        float x = glm::mix(localMin.x, localMax.x, tx);
+        for (int sy = 0; sy < subSamples; ++sy) {
+            float ty = (float(sy) + 0.5f) / float(subSamples);
+            float y = glm::mix(localMin.y, localMax.y, ty);
+            for (int sz = 0; sz < subSamples; ++sz) {
+                float tz = (float(sz) + 0.5f) / float(subSamples);
+                float z = glm::mix(localMin.z, localMax.z, tz);
+
+                bool inBottom = y <= -halfExtents.y + kOpenBoxWallThickness;
+                bool inSideWall = glm::abs(x) >= halfExtents.x - kOpenBoxWallThickness ||
+                                  glm::abs(z) >= halfExtents.z - kOpenBoxWallThickness;
+                if (inBottom || inSideWall) {
+                    materialFraction += invSampleCount;
+                }
+            }
+        }
+    }
+
+    float trappedAirFraction = 1.0f - materialFraction;
+    return materialFraction + trappedAirFraction * (1.0f - glm::clamp(floodLevel, 0.0f, 1.0f));
 }
 
 void applyBuoyantCollisionResponse(Entity& a, Entity& b, glm::vec3 normal, float penetration) {
@@ -289,6 +494,7 @@ void PhysicsSystem::update(Scene* scene, float deltaTime, bool useGrid, bool wat
         }
         glm::vec2 horizontalVelocity(rippleVelocity.x, rippleVelocity.z);
         float horizontalSpeed = glm::length(horizontalVelocity);
+        float downwardSpeed = glm::max(-rippleVelocity.y, 0.0f);
         float contactDepth = 0.0f;
         if (e.buoyancyType == 0) {
             contactDepth = 4.0f - (e.position.y - e.radius);
@@ -301,11 +507,13 @@ void PhysicsSystem::update(Scene* scene, float deltaTime, bool useGrid, bool wat
         float submerged = glm::clamp(e.submergedFraction, 0.0f, 1.0f);
         float contactDepth01 = glm::clamp((contactDepth - kRippleContactDepthThreshold) / 0.35f, 0.0f, 1.0f);
 
-        if (contactDepth > kRippleContactDepthThreshold) {
+        if (contactDepth > kRippleContactDepthThreshold &&
+            (horizontalSpeed > kRippleHorizontalSpeedThreshold || downwardSpeed > kRippleVerticalSpeedThreshold)) {
             if (e.buoyancyType == 0) {
                 float patchRadius = glm::clamp(e.radius * 0.42f, 0.16f, 0.42f);
-                float contactMotion = 0.18f + glm::clamp(horizontalSpeed, 0.0f, 1.5f) * 0.22f + glm::clamp(-rippleVelocity.y, 0.0f, 0.8f) * 0.28f;
-                float totalStrength = -0.0016f * (0.25f + contactDepth01) * contactMotion * massScale;
+                float contactMotion = glm::clamp(horizontalSpeed - kRippleHorizontalSpeedThreshold, 0.0f, 1.5f) * 0.23f +
+                                      glm::clamp(downwardSpeed - kRippleVerticalSpeedThreshold, 0.0f, 0.8f) * 0.30f;
+                float totalStrength = -0.00145f * (0.25f + contactDepth01) * contactMotion * massScale;
                 for (int i = 0; i < 8; ++i) {
                     float a = (float(i) / 8.0f) * glm::two_pi<float>();
                     glm::vec3 contactPos(e.position.x + glm::cos(a) * patchRadius * 0.70f, 4.0f, e.position.z + glm::sin(a) * patchRadius * 0.70f);
@@ -314,14 +522,14 @@ void PhysicsSystem::update(Scene* scene, float deltaTime, bool useGrid, bool wat
             }
         }
 
-        if (horizontalSpeed > 0.18f && contactDepth > kRippleContactDepthThreshold) {
+        if (horizontalSpeed > 0.16f && contactDepth > kRippleContactDepthThreshold) {
             glm::vec3 direction(horizontalVelocity.x, 0.0f, horizontalVelocity.y);
             direction /= glm::max(horizontalSpeed, 0.001f);
             glm::vec3 side(-direction.z, 0.0f, direction.x);
             float patchRadius = (e.buoyancyType == 0)
                 ? glm::clamp(e.radius * 0.45f, 0.18f, 0.42f)
                 : glm::clamp(glm::max(e.scale.x, e.scale.z) * 0.16f, 0.22f, 0.55f);
-            float strength = -0.0075f * horizontalSpeed * (0.18f + contactDepth01) * massScale;
+            float strength = -0.0062f * (horizontalSpeed - 0.10f) * (0.16f + contactDepth01) * massScale;
             glm::vec3 wakeCenter = e.position - direction * patchRadius;
             for (int i = -1; i <= 1; ++i) {
                 glm::vec3 wakePos = wakeCenter + side * (float(i) * patchRadius * 0.55f);
@@ -329,8 +537,8 @@ void PhysicsSystem::update(Scene* scene, float deltaTime, bool useGrid, bool wat
             }
         }
 
-        if (rippleVelocity.y < -0.5f && contactDepth > kRippleContactDepthThreshold && contactDepth < 1.5f) {
-            float strength = 0.026f * rippleVelocity.y * massScale;
+        if (rippleVelocity.y < -0.42f && contactDepth > kRippleContactDepthThreshold && contactDepth < 1.5f) {
+            float strength = 0.022f * rippleVelocity.y * massScale;
             if (e.buoyancyType == 0) {
                 float patchRadius = glm::clamp(e.radius * 0.55f, 0.18f, 0.48f);
                 for (int i = 0; i < 8; ++i) {
@@ -347,8 +555,10 @@ void PhysicsSystem::update(Scene* scene, float deltaTime, bool useGrid, bool wat
 
         if (e.isGrabbed && contactDepth > kRippleContactDepthThreshold && submerged > 0.03f) {
             float grabSpeed = glm::length(e.targetGrabWorld - (e.position + e.orientation * e.localGrabOffset));
-            float strength = -0.010f * glm::clamp(grabSpeed, 0.0f, 2.5f) * (0.16f + submerged);
-            addSurfaceRippleImpulse(e, rippleImpulses, e.position + e.orientation * e.localGrabOffset, 0.28f, strength, glm::abs(strength) * kRippleDebugPressureScale);
+            if (grabSpeed > 0.020f) {
+                float strength = -0.008f * glm::clamp(grabSpeed - 0.020f, 0.0f, 2.5f) * (0.16f + submerged);
+                addSurfaceRippleImpulse(e, rippleImpulses, e.position + e.orientation * e.localGrabOffset, 0.28f, strength, glm::abs(strength) * kRippleDebugPressureScale);
+            }
         }
 
         if (e.buoyancyType != 0) {
@@ -385,14 +595,16 @@ void PhysicsSystem::update(Scene* scene, float deltaTime, bool useGrid, bool wat
                     glm::vec3 sampleVelocity = rippleVelocity + glm::cross(e.angularVelocity, worldSample - e.position);
                     float horizontalSampleSpeed = glm::length(glm::vec2(sampleVelocity.x, sampleVelocity.z));
                     float impactSpeed = glm::max(-sampleVelocity.y, 0.0f);
+                    if (horizontalSampleSpeed < kRippleHorizontalSpeedThreshold && impactSpeed < kRippleVerticalSpeedThreshold) continue;
                     float pressure = rho * g * depth;
                     float normalizedPressure = glm::clamp(pressure / (rho * g * 0.45f), 0.0f, 1.0f);
-                    float motionTerm = 0.018f + horizontalSampleSpeed * 0.09f + impactSpeed * 0.38f;
+                    float motionTerm = glm::clamp(horizontalSampleSpeed - kRippleHorizontalSpeedThreshold, 0.0f, 2.0f) * 0.075f +
+                                       glm::clamp(impactSpeed - kRippleVerticalSpeedThreshold, 0.0f, 2.0f) * 0.32f;
                     float edgeConcentration = 1.0f + 0.08f * glm::smoothstep(0.45f, 0.95f, glm::max(edgeX, edgeZ));
                     float cornerConcentration = 1.0f;
                     float pressureSign = (impactSpeed > horizontalSampleSpeed * 0.25f) ? -1.0f : -0.55f;
-                    float strength = pressureSign * normalizedPressure * motionTerm * areaWeight * massScale * 0.22f * edgeConcentration * cornerConcentration;
-                    strength = glm::clamp(strength, -0.050f, 0.0f);
+                    float strength = pressureSign * normalizedPressure * motionTerm * areaWeight * massScale * 0.18f * edgeConcentration * cornerConcentration;
+                    strength = glm::clamp(strength, -0.040f, 0.0f);
 
                     float radius = baseRadius + glm::clamp(depth * 0.16f, 0.0f, 0.24f);
                     addSurfaceRippleImpulse(e, rippleImpulses, worldSample, radius, strength, pressure);
@@ -581,6 +793,7 @@ void PhysicsSystem::update(Scene* scene, float deltaTime, bool useGrid, bool wat
             // Unparent! Convert to standalone floating buoyant block!
             boxCargo->isCargo = false;
             boxCargo->isBuoyant = true;
+            boxCargo->buoyancyType = 1;
             boxCargo->hasCollision = true;
             
             // Calculate starting world position and velocity
@@ -588,6 +801,7 @@ void PhysicsSystem::update(Scene* scene, float deltaTime, bool useGrid, bool wat
             glm::vec3 worldVel = openBox->velocity + glm::cross(openBox->angularVelocity, worldPos - openBox->position);
             
             boxCargo->position = worldPos;
+            boxCargo->orientation = openBox->orientation;
             boxCargo->velocity = worldVel + openBox->orientation * glm::vec3(0.0f, 1.5f, 0.0f); // Add pop eject impulse
             boxCargo->angularVelocity = openBox->angularVelocity;
         } else {
@@ -607,9 +821,6 @@ void PhysicsSystem::update(Scene* scene, float deltaTime, bool useGrid, bool wat
             } else {
                 updateBuoyancy(e, deltaTime, waterQueries, queryIndex);
             }
-        } else if (e.name == "DynamicSphere") {
-            e.velocity.y -= 9.81f * deltaTime; // gravity
-            e.position += e.velocity * deltaTime;
         }
     }
 
@@ -642,6 +853,7 @@ void PhysicsSystem::updateBuoyancy(Entity& e, float deltaTime, const std::vector
     e.debugWaterSurfacePoints.clear();
     e.debugWaterSurfaceNormals.clear();
     e.debugWaterSubmergedDepths.clear();
+    clearWallDebug(e);
     std::vector<float>& filteredHeights = g_filteredBuoyancyHeights[&e];
     size_t buoyancySampleIndex = 0;
 
@@ -835,13 +1047,15 @@ void PhysicsSystem::updateBuoyancy(Entity& e, float deltaTime, const std::vector
 
                     float weight = 1.0f;
                     if (e.buoyancyType == 2) {
-                        float t = 0.05f; // Wall thickness 5cm
-                        bool isWallOrBottom = (ly <= -H*0.5f + t) || 
-                                              (glm::abs(lx) >= W*0.5f - t) || 
-                                              (glm::abs(lz) >= D*0.5f - t);
-                        if (!isWallOrBottom) {
-                            weight = glm::max(0.25f, 1.0f - e.floodLevel); // Smoothly interpolate buoyancy!
-                        }
+                        glm::vec3 cellHalf(W, H, D);
+                        cellHalf *= 0.5f / float(gridRes);
+                        glm::vec3 localCenter(lx, ly, lz);
+                        weight = estimateOpenBoxCellDisplacementWeight(
+                            localCenter - cellHalf,
+                            localCenter + cellHalf,
+                            glm::vec3(W, H, D) * 0.5f,
+                            e.floodLevel
+                        );
                     }
 
                     glm::vec3 worldPos = e.position + e.orientation * glm::vec3(lx, ly, lz);
@@ -929,96 +1143,47 @@ void PhysicsSystem::updateBuoyancy(Entity& e, float deltaTime, const std::vector
 
     glm::vec3 torque_total = torque_buoyancy + torque_drag;
 
-    // 4. Spring-damper penalty collisions with tank walls and bottom.
-    float ks = 20000.0f;
-    float kd = 300.0f;
-
-    if (e.buoyancyType == 0) { // Sphere Boundaries
-        float R = e.radius;
-        struct Contact { glm::vec3 pos; glm::vec3 normal; float depth; };
-        std::vector<Contact> contacts;
-        
-        if (worldCoM.y - R < 0.0f) contacts.push_back({ worldCoM + glm::vec3(0.0f, -R, 0.0f), glm::vec3(0, 1, 0), 0.0f - (worldCoM.y - R) });
-        if (worldCoM.x - R < -5.0f) contacts.push_back({ worldCoM + glm::vec3(-R, 0.0f, 0.0f), glm::vec3(1, 0, 0), -5.0f - (worldCoM.x - R) });
-        if (worldCoM.x + R > 5.0f) contacts.push_back({ worldCoM + glm::vec3(R, 0.0f, 0.0f), glm::vec3(-1, 0, 0), (worldCoM.x + R) - 5.0f });
-        if (worldCoM.z - R < -5.0f) contacts.push_back({ worldCoM + glm::vec3(0.0f, 0.0f, -R), glm::vec3(0, 0, 1), -5.0f - (worldCoM.z - R) });
-        if (worldCoM.z + R > 5.0f) contacts.push_back({ worldCoM + glm::vec3(0.0f, 0.0f, R), glm::vec3(0, 0, -1), (worldCoM.z + R) - 5.0f });
-
-        for (const auto& c : contacts) {
-            glm::vec3 vc = e.velocity + glm::cross(e.angularVelocity, c.pos - worldCoM);
-            glm::vec3 Fp = (ks * c.depth) * c.normal - kd * vc;
-            Fp = clampVector(Fp, glm::max(M * g * 16.0f, 1000.0f));
-            F_total += Fp;
-            torque_total += glm::cross(c.pos - worldCoM, Fp);
-        }
-    } else { // Box Corners (Slab & Open-top Box)
-        float W = e.scale.x;
-        float H = e.scale.y;
-        float D = e.scale.z;
-        float x_h = W * 0.5f;
-        float y_h = H * 0.5f;
-        float z_h = D * 0.5f;
-        
-        glm::vec3 localCorners[8] = {
-            glm::vec3(-x_h, -y_h, -z_h), glm::vec3(x_h, -y_h, -z_h),
-            glm::vec3(x_h,  y_h, -z_h), glm::vec3(-x_h,  y_h, -z_h),
-            glm::vec3(-x_h, -y_h,  z_h), glm::vec3(x_h, -y_h,  z_h),
-            glm::vec3(x_h,  y_h,  z_h), glm::vec3(-x_h,  y_h,  z_h)
-        };
-
-        for (int i = 0; i < 8; ++i) {
-            glm::vec3 worldC = e.position + e.orientation * localCorners[i];
-            
-            struct Penalty { glm::vec3 normal; float depth; };
-            std::vector<Penalty> penalties;
-
-            if (worldC.y < 0.0f) penalties.push_back({ glm::vec3(0, 1, 0), 0.0f - worldC.y });
-            if (worldC.x < -5.0f) penalties.push_back({ glm::vec3(1, 0, 0), -5.0f - worldC.x });
-            if (worldC.x > 5.0f) penalties.push_back({ glm::vec3(-1, 0, 0), worldC.x - 5.0f });
-            if (worldC.z < -5.0f) penalties.push_back({ glm::vec3(0, 0, 1), -5.0f - worldC.z });
-            if (worldC.z > 5.0f) penalties.push_back({ glm::vec3(0, 0, -1), worldC.z - 5.0f });
-
-            if (!penalties.empty()) {
-                glm::vec3 vc = e.velocity + glm::cross(e.angularVelocity, worldC - worldCoM);
-                for (const auto& p : penalties) {
-                    glm::vec3 Fp = ((ks / 8.0f) * p.depth) * p.normal - (kd / 8.0f) * vc;
-                    Fp = clampVector(Fp, glm::max(M * g * 6.0f, 500.0f));
-                    F_total += Fp;
-                    torque_total += glm::cross(worldC - worldCoM, Fp);
-                }
-            }
-        }
-    }
-
     F_total = clampVector(F_total, glm::max(M * g * 8.0f, 1.0f));
     float maxTorque = glm::max(M * g * glm::length(e.scale) * 2.5f, 20.0f);
     torque_total = clampVector(torque_total, maxTorque);
 
-    glm::vec3 accel = F_total / M;
-    e.velocity += accel * deltaTime;
-    e.velocity = clampVector(e.velocity, 12.0f);
-    worldCoM += e.velocity * deltaTime;
-
     glm::vec3 torque_local = glm::transpose(R) * torque_total;
     glm::vec3 alpha_local = torque_local / I_local;
     glm::vec3 alpha_world = R * alpha_local;
-    e.angularVelocity += alpha_world * deltaTime;
-    float angularDamping = std::pow(0.985f, deltaTime * 60.0f);
-    e.angularVelocity *= angularDamping;
+    glm::vec3 accel = F_total / M;
 
-    // Safety Angular Speed Clamp
-    float angSpeed = glm::length(e.angularVelocity);
-    float maxAngSpeed = (e.buoyancyType == 2) ? 4.0f : 8.0f;
-    if (angSpeed > maxAngSpeed) {
-        e.angularVelocity = (e.angularVelocity / angSpeed) * maxAngSpeed;
+    float bodyExtent = (e.buoyancyType == 0) ? e.radius : glm::length(e.scale) * 0.5f;
+    float contactSpeed = glm::length(e.velocity) + glm::length(e.angularVelocity) * bodyExtent;
+    constexpr float maxWallStepDistance = 0.12f;
+    int motionSubsteps = glm::clamp(
+        static_cast<int>(std::ceil((contactSpeed * deltaTime) / maxWallStepDistance)),
+        1,
+        8
+    );
+    float stepDt = deltaTime / float(motionSubsteps);
+
+    for (int step = 0; step < motionSubsteps; ++step) {
+        e.velocity += accel * stepDt;
+        e.velocity = clampVector(e.velocity, 12.0f);
+        worldCoM += e.velocity * stepDt;
+
+        e.angularVelocity += alpha_world * stepDt;
+        float angularDamping = std::pow(0.985f, stepDt * 60.0f);
+        e.angularVelocity *= angularDamping;
+
+        float angSpeed = glm::length(e.angularVelocity);
+        float maxAngSpeed = (e.buoyancyType == 2) ? 4.0f : 8.0f;
+        if (angSpeed > maxAngSpeed) {
+            e.angularVelocity = (e.angularVelocity / angSpeed) * maxAngSpeed;
+        }
+
+        glm::quat w_quat(0.0f, e.angularVelocity.x, e.angularVelocity.y, e.angularVelocity.z);
+        e.orientation += (0.5f * w_quat * e.orientation) * stepDt;
+        e.orientation = glm::normalize(e.orientation);
+
+        e.position = worldCoM - e.orientation * CoM_local;
+        solveTankWallContacts(e, worldCoM, CoM_local, I_local, M);
     }
-
-    glm::quat w_quat(0.0f, e.angularVelocity.x, e.angularVelocity.y, e.angularVelocity.z);
-    e.orientation += (0.5f * w_quat * e.orientation) * deltaTime;
-    e.orientation = glm::normalize(e.orientation);
-
-    // Update entity geometric position from updated worldCoM
-    e.position = worldCoM - e.orientation * CoM_local;
 
     e.buoyancyCenter = B;
     e.buoyancyForce = F_buoyant;
@@ -1131,12 +1296,14 @@ void PhysicsSystem::resolveCollisionSphereAABB(Entity* sphere, Entity* box) {
             penetration = sphere->radius + glm::max(faceDistances[closestFace], 0.0f);
         }
 
-        sphere->position += N * penetration;
+        constexpr float slop = 0.010f;
+        constexpr float correctionPercent = 0.60f;
+        sphere->position += N * (glm::max(penetration - slop, 0.0f) * correctionPercent);
         
         // Reflect velocity
         float velAlongNormal = glm::dot(sphere->velocity, N);
         if (velAlongNormal < 0) {
-            float restitution = 0.8f; // bouncy
+            float restitution = 0.10f;
             sphere->velocity -= (1.0f + restitution) * velAlongNormal * N;
         }
         
@@ -1196,22 +1363,44 @@ void PhysicsSystem::updateExhaustive(Scene* scene, float deltaTime) {
         if (e.name == "DynamicSphere") dynamicSpheres.push_back(&e);
         else if (e.hasCollision) staticObjects.push_back(&e);
     }
+
+    if (dynamicSpheres.empty() || deltaTime <= 0.0f) return;
+
+    float maxSpeed = 0.0f;
+    for (Entity* sphere : dynamicSpheres) {
+        maxSpeed = glm::max(maxSpeed, glm::length(sphere->velocity) + 9.81f * deltaTime);
+    }
+
+    constexpr float maxSphereStepDistance = 0.20f;
+    int substeps = glm::clamp(
+        static_cast<int>(std::ceil((maxSpeed * deltaTime) / maxSphereStepDistance)),
+        1,
+        16
+    );
+    float stepDt = deltaTime / static_cast<float>(substeps);
     
     constexpr int solverIterations = 4;
-    for (int iteration = 0; iteration < solverIterations; ++iteration) {
-        for (int i=0; i<dynamicSpheres.size(); i++) {
-            Entity* sphere = dynamicSpheres[i];
-            
-            // Check Static
-            for (int j=0; j<staticObjects.size(); j++) {
-                g_collisionChecks++;
-                resolveCollisionSphereAABB(sphere, staticObjects[j]);
-            }
-            
-            // Check Spheres (i < j to avoid double checking)
-            for (int j=i+1; j<dynamicSpheres.size(); j++) {
-                g_collisionChecks++;
-                resolveCollisionSphereSphere(sphere, dynamicSpheres[j]);
+    for (int step = 0; step < substeps; ++step) {
+        for (Entity* sphere : dynamicSpheres) {
+            sphere->velocity.y -= 9.81f * stepDt;
+            sphere->position += sphere->velocity * stepDt;
+        }
+
+        for (int iteration = 0; iteration < solverIterations; ++iteration) {
+            for (int i=0; i<dynamicSpheres.size(); i++) {
+                Entity* sphere = dynamicSpheres[i];
+                
+                // Check Static
+                for (int j=0; j<staticObjects.size(); j++) {
+                    g_collisionChecks++;
+                    resolveCollisionSphereAABB(sphere, staticObjects[j]);
+                }
+                
+                // Check Spheres (i < j to avoid double checking)
+                for (int j=i+1; j<dynamicSpheres.size(); j++) {
+                    g_collisionChecks++;
+                    resolveCollisionSphereSphere(sphere, dynamicSpheres[j]);
+                }
             }
         }
     }
@@ -1229,51 +1418,75 @@ void PhysicsSystem::updateGrid(Scene* scene, float deltaTime) {
             dynamicSpheres.push_back(i);
         }
     }
+
+    if (dynamicSpheres.empty() || deltaTime <= 0.0f) return;
+
+    float maxSpeed = 0.0f;
+    for (int sphereIdx : dynamicSpheres) {
+        Entity& sphere = scene->entities[sphereIdx];
+        maxSpeed = glm::max(maxSpeed, glm::length(sphere.velocity) + 9.81f * deltaTime);
+    }
+
+    constexpr float maxSphereStepDistance = 0.20f;
+    int substeps = glm::clamp(
+        static_cast<int>(std::ceil((maxSpeed * deltaTime) / maxSphereStepDistance)),
+        1,
+        16
+    );
+    float stepDt = deltaTime / static_cast<float>(substeps);
     
     // 2. Resolve using grid via index loops.
     constexpr int solverIterations = 4;
-    for (int iteration = 0; iteration < solverIterations; ++iteration) {
-        // Rebuild dynamic cells each solver pass because collision resolution moves spheres.
-        for (int x=0; x<7; x++) {
-            for (int y=0; y<7; y++) {
-                for (int z=0; z<7; z++) {
-                    grid[x][y][z].dynamicEntities.clear();
-                }
-            }
-        }
+    for (int step = 0; step < substeps; ++step) {
         for (int sphereIdx : dynamicSpheres) {
-            Entity& e = scene->entities[sphereIdx];
-            glm::ivec3 cell = getGridCell(e.position);
-            grid[cell.x][cell.y][cell.z].dynamicEntities.push_back(sphereIdx);
+            Entity& sphere = scene->entities[sphereIdx];
+            sphere.velocity.y -= 9.81f * stepDt;
+            sphere.position += sphere.velocity * stepDt;
         }
 
-        for (int sphereIdx : dynamicSpheres) {
-            Entity* sphere = &scene->entities[sphereIdx];
-            glm::ivec3 cell = getGridCell(sphere->position);
-            
-            std::vector<int> checkedStatics; // Prevent duplicate checking across adjacent cells
-            
-            int r = 1; // adjacent extent
-            for (int nx = std::max(0, cell.x - r); nx <= std::min(6, cell.x + r); nx++) {
-                for (int ny = std::max(0, cell.y - r); ny <= std::min(6, cell.y + r); ny++) {
-                    for (int nz = std::max(0, cell.z - r); nz <= std::min(6, cell.z + r); nz++) {
-                        
-                        for (int staticIdx : grid[nx][ny][nz].staticEntities) {
-                            bool alreadyChecked = false;
-                            for (int k : checkedStatics) {
-                                if (k == staticIdx) { alreadyChecked = true; break;}
+        for (int iteration = 0; iteration < solverIterations; ++iteration) {
+            // Rebuild dynamic cells each solver pass because collision resolution moves spheres.
+            for (int x=0; x<7; x++) {
+                for (int y=0; y<7; y++) {
+                    for (int z=0; z<7; z++) {
+                        grid[x][y][z].dynamicEntities.clear();
+                    }
+                }
+            }
+            for (int sphereIdx : dynamicSpheres) {
+                Entity& e = scene->entities[sphereIdx];
+                glm::ivec3 cell = getGridCell(e.position);
+                grid[cell.x][cell.y][cell.z].dynamicEntities.push_back(sphereIdx);
+            }
+
+            for (int sphereIdx : dynamicSpheres) {
+                Entity* sphere = &scene->entities[sphereIdx];
+                glm::ivec3 cell = getGridCell(sphere->position);
+                
+                std::vector<int> checkedStatics; // Prevent duplicate checking across adjacent cells
+                
+                int r = 1; // adjacent extent
+                for (int nx = std::max(0, cell.x - r); nx <= std::min(6, cell.x + r); nx++) {
+                    for (int ny = std::max(0, cell.y - r); ny <= std::min(6, cell.y + r); ny++) {
+                        for (int nz = std::max(0, cell.z - r); nz <= std::min(6, cell.z + r); nz++) {
+                            
+                            for (int staticIdx : grid[nx][ny][nz].staticEntities) {
+                                bool alreadyChecked = false;
+                                for (int k : checkedStatics) {
+                                    if (k == staticIdx) { alreadyChecked = true; break;}
+                                }
+                                if (!alreadyChecked) {
+                                    g_collisionChecks++;
+                                    resolveCollisionSphereAABB(sphere, &scene->entities[staticIdx]);
+                                    checkedStatics.push_back(staticIdx);
+                                }
                             }
-                            if (!alreadyChecked) {
-                                g_collisionChecks++;
-                                resolveCollisionSphereAABB(sphere, &scene->entities[staticIdx]);
-                                checkedStatics.push_back(staticIdx);
-                            }
-                        }
-                        
-                        for (int otherDynIdx : grid[nx][ny][nz].dynamicEntities) {
-                            if (sphereIdx != otherDynIdx && sphereIdx < otherDynIdx) { 
-                                g_collisionChecks++;
-                                resolveCollisionSphereSphere(sphere, &scene->entities[otherDynIdx]);
+                            
+                            for (int otherDynIdx : grid[nx][ny][nz].dynamicEntities) {
+                                if (sphereIdx != otherDynIdx && sphereIdx < otherDynIdx) { 
+                                    g_collisionChecks++;
+                                    resolveCollisionSphereSphere(sphere, &scene->entities[otherDynIdx]);
+                                }
                             }
                         }
                     }

@@ -14,17 +14,24 @@ struct RippleImpulse {
 };
 
 struct RippleTuning {
-    float rippleAmplitude = 1.0f;
-    float visualRippleScale = 1.35f;
-    float physicsRippleScale = 0.15f;
-    float rippleDamping = 0.990f;
-    float ripplePropagationSpeed = 3.85f;
-    float maxRippleHeight = 0.08f;
-    float reflectionStrength = 1.28f;
-    float fresnelStrength = 1.14f;
+    float rippleAmplitude = 0.90f;
+    float visualRippleScale = 1.28f;
+    float physicsRippleScale = 0.10f;
+    float rippleDamping = 0.986f;
+    float ripplePropagationSpeed = 2.75f;
+    float maxRippleHeight = 0.065f;
+    float reflectionStrength = 1.08f;
+    float fresnelStrength = 1.04f;
+    float specularStrength = 1.12f;
+    float shininess = 96.0f;
+    float waterRoughness = 0.06f;
+    float normalStrength = 1.12f;
+    float crestHighlightStrength = 0.95f;
+    glm::vec3 skyReflectionColor = glm::vec3(0.42f, 0.62f, 0.78f);
     float waveSteepness = 1.0f;
-    float rippleNormalStrength = 1.10f;
-    float waterNormalStrength = 1.05f;
+    float rippleNormalStrength = 0.82f;
+    float waterNormalStrength = 0.82f;
+    float rippleNoiseThreshold = 0.0008f;
 };
 
 class RippleSystem {

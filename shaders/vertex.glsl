@@ -25,6 +25,7 @@ uniform mat4 textureMatrix;
 
 uniform float time;
 uniform bool isWater;
+uniform bool u_isInternalBoxWater;
 
 void main() {
     vec3 worldPos = vec3(model * vec4(aPos, 1.0));
@@ -41,7 +42,7 @@ void main() {
         B = cross(N, T);
     }
     
-    if (isWater) {
+    if (isWater && !u_isInternalBoxWater) {
         WaterSurface surface = queryWaterSurface(worldPos.xz, worldPos.y, time);
         worldPos = surface.position;
         T = surface.tangent;

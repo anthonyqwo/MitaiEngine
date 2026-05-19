@@ -12,7 +12,9 @@
 #include "Mesh.h"
 #include "Shader.h"
 #include "Collider.h"
+#include "AssetPath.h"
 #include <algorithm>
+#include <filesystem>
 
 #include <string>
 #include <fstream>
@@ -59,12 +61,13 @@ public:
 private:
     void loadModel(std::string const &path) {
         Assimp::Importer importer;
-        const aiScene* scene = importer.ReadFile(path, aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
+        std::filesystem::path modelPath = AssetPath::resolve(path);
+        const aiScene* scene = importer.ReadFile(modelPath.string(), aiProcess_Triangulate | aiProcess_GenSmoothNormals | aiProcess_FlipUVs | aiProcess_CalcTangentSpace);
         if(!scene || scene->mFlags & AI_SCENE_FLAGS_INCOMPLETE || !scene->mRootNode) {
             std::cout << "ERROR::ASSIMP:: " << importer.GetErrorString() << std::endl;
             return;
         }
-        directory = path.substr(0, path.find_last_of('/'));
+        directory = modelPath.parent_path().string();
         processNode(scene->mRootNode, scene);
     }
 

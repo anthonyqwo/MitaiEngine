@@ -44,9 +44,12 @@ void main() {
 
     float curr = imageLoad(u_currHeight, p).r;
     float prev = imageLoad(u_prevHeight, p).r;
-    float limit = clamp(u_maxRippleHeight, 0.04, 0.10);
-    float nextCurr = clamp(curr + impulseVelocity * 0.025, -limit, limit);
-    float nextPrev = clamp(prev - impulseVelocity * 0.82, -limit, limit);
+    float limit = clamp(u_maxRippleHeight, 0.025, 0.08);
+    if (abs(impulseVelocity) < 0.00035) {
+        impulseVelocity = 0.0;
+    }
+    float nextCurr = clamp(curr + impulseVelocity * 0.022, -limit, limit);
+    float nextPrev = clamp(prev - impulseVelocity * 0.66, -limit, limit);
 
     imageStore(u_currHeight, p, vec4(nextCurr, 0.0, 0.0, 1.0));
     imageStore(u_prevHeight, p, vec4(nextPrev, 0.0, 0.0, 1.0));

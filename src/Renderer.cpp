@@ -392,7 +392,7 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
         if (isFirstViewport) glEndQuery(GL_TIME_ELAPSED);
 
         if (isFirstViewport) glBeginQuery(GL_TIME_ELAPSED, queryWater);
-        glEnable(GL_BLEND); glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        glEnable(GL_BLEND); glBlendFunc(GL_ONE, GL_ONE_MINUS_SRC_ALPHA);
         glDepthMask(GL_FALSE);
         forwardWaterShader->use();
         forwardWaterShader->setMat4("projection", vp.proj);
@@ -413,19 +413,50 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
         // so invisible/removed lights properly become dark
         forwardWaterShader->setVec3("light1.color", glm::vec3(0.0f));
         forwardWaterShader->setVec3("light2.color", glm::vec3(0.0f));
+        const Entity* fallbackWaterPointLight = nullptr;
+        const Entity* highlightWaterPointLight = nullptr;
         // Lights for water
         for(const auto& e : scene->entities){
             if(!e.isLight || !e.visible) continue;
             if(e.name == "Main Sun") {
                 forwardWaterShader->setVec3("light1.position", e.position);
                 forwardWaterShader->setVec3("light1.color", e.lightColor * e.lightIntensity);
-            } else if(e.name == "Point Light") {
-                forwardWaterShader->setVec3("light2.position", e.position);
-                forwardWaterShader->setVec3("light2.color", e.lightColor * e.lightIntensity);
+            } else if(e.name == "Water Highlight Light") {
+                highlightWaterPointLight = &e;
+            } else if(e.name == "Point Light" && fallbackWaterPointLight == nullptr) {
+                fallbackWaterPointLight = &e;
             }
+        }
+        const Entity* waterPointLight = highlightWaterPointLight ? highlightWaterPointLight : fallbackWaterPointLight;
+        if (waterPointLight) {
+            forwardWaterShader->setVec3("light2.position", waterPointLight->position);
+            forwardWaterShader->setVec3("light2.color", waterPointLight->lightColor * waterPointLight->lightIntensity);
+            forwardWaterShader->setBool("u_light2CastsShadow", waterPointLight->name == "Point Light");
+        } else {
+            forwardWaterShader->setBool("u_light2CastsShadow", false);
         }
         forwardWaterShader->setMat4("lightSpaceMatrix", lSpace);
         forwardWaterShader->setFloat("far_plane", far_p);
+
+        const Entity* openBoxClipEntity = nullptr;
+        for (const auto& e : scene->entities) {
+            if (e.visible && e.name == "Open Box" && e.buoyancyType == 2) {
+                openBoxClipEntity = &e;
+                break;
+            }
+        }
+        constexpr float openBoxWallThickness = 0.05f;
+        constexpr float internalWaterThreshold = 0.025f;
+        float openBoxFloodLevel = openBoxClipEntity ? glm::clamp(openBoxClipEntity->floodLevel, 0.0f, 1.0f) : 0.0f;
+        forwardWaterShader->setBool("u_openBoxClipEnabled", openBoxClipEntity != nullptr);
+        forwardWaterShader->setFloat("u_openBoxWallThickness", openBoxWallThickness);
+        forwardWaterShader->setFloat("u_openBoxFloodLevel", openBoxFloodLevel);
+        forwardWaterShader->setFloat("u_internalWaterLocalHeight", -0.5f + openBoxWallThickness);
+        if (openBoxClipEntity) {
+            forwardWaterShader->setMat4("u_openBoxInverseModel", glm::inverse(openBoxClipEntity->getModelMatrix()));
+        } else {
+            forwardWaterShader->setMat4("u_openBoxInverseModel", glm::mat4(1.0f));
+        }
 
         // Water textures
         glActiveTexture(GL_TEXTURE0); glBindTexture(GL_TEXTURE_2D, gPosition);
@@ -447,6 +478,7 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
             forwardWaterShader->setFloat("reflectivity", e.reflectivity * (1.0f + 0.5f * peakFactor));
             
             forwardWaterShader->setBool("isWater", true);
+            forwardWaterShader->setBool("u_isInternalBoxWater", false);
             glm::mat4 texMat(1.0f); if(e.dynamicTexture) texMat=glm::translate(texMat, glm::vec3((float)glfwGetTime()*e.texSpeed, 0.0f, 0.0f));
             forwardWaterShader->setMat4("textureMatrix", texMat);
             
@@ -464,10 +496,52 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
                 glDrawArrays(GL_TRIANGLES, 0, 6);
             }
         }
+
+        if (openBoxClipEntity && openBoxFloodLevel > internalWaterThreshold) {
+            float innerSpan = 1.0f - 2.0f * openBoxWallThickness;
+            float localBottom = -0.5f + openBoxWallThickness + 0.004f;
+            float localTop = 0.5f - 0.012f;
+            float localWaterY = glm::mix(localBottom, localTop, openBoxFloodLevel);
+            glm::mat4 internalWaterModel = openBoxClipEntity->getModelMatrix();
+            internalWaterModel = glm::translate(internalWaterModel, glm::vec3(0.0f, localWaterY, 0.0f));
+            internalWaterModel = glm::scale(internalWaterModel, glm::vec3(innerSpan / 14.0f, 1.0f, innerSpan / 14.0f));
+
+            forwardWaterShader->setMat4("model", internalWaterModel);
+            forwardWaterShader->setFloat("roughness", 0.08f);
+            forwardWaterShader->setFloat("metallic", 0.0f);
+            forwardWaterShader->setFloat("material.ambientStrength", 1.0f);
+            forwardWaterShader->setVec3("objectColor", glm::vec3(0.05f, 0.32f, 0.72f));
+            forwardWaterShader->setFloat("reflectivity", 0.30f + 0.30f * openBoxFloodLevel);
+            forwardWaterShader->setBool("isWater", true);
+            forwardWaterShader->setBool("u_isInternalBoxWater", true);
+            forwardWaterShader->setBool("u_openBoxClipEnabled", false);
+            forwardWaterShader->setFloat("u_internalWaterLocalHeight", localWaterY);
+            forwardWaterShader->setMat4("textureMatrix", glm::mat4(1.0f));
+
+            if (waterGridVAO != 0) {
+                glBindVertexArray(waterGridVAO);
+                glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, floorDiff);
+                glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, waterNorm);
+                glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));
+                glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));
+                glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("whiteTex"));
+                glActiveTexture(GL_TEXTURE15); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("blackTex"));
+                glDrawElements(GL_TRIANGLES, waterGridIndexCount, GL_UNSIGNED_INT, 0);
+            } else {
+                glBindVertexArray(floorVAO);
+                glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, floorDiff);
+                glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, waterNorm);
+                glDrawArrays(GL_TRIANGLES, 0, 6);
+            }
+
+            forwardWaterShader->setBool("u_isInternalBoxWater", false);
+            forwardWaterShader->setBool("u_openBoxClipEnabled", openBoxClipEntity != nullptr);
+        }
         glDepthMask(GL_TRUE);
 
         // Transparent glass tank overlay. Keep depth testing, but do not write depth,
         // so the glass tint never hides the water surface or submerged objects.
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
         glDepthMask(GL_FALSE);
         forwardWaterShader->use();
         for (const auto& e : scene->entities) {
@@ -492,6 +566,38 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
             glDrawArrays(GL_TRIANGLES, 0, 36);
         }
         glDepthMask(GL_TRUE);
+
+        if (openBoxClipEntity && waterDebugMode >= 8) {
+            glm::mat4 boxModel = openBoxClipEntity->getModelMatrix();
+            float inner = 0.5f - openBoxWallThickness;
+            float bottomY = -0.5f + openBoxWallThickness;
+            float topY = 0.5f;
+            float waterY = glm::mix(bottomY + 0.004f, topY - 0.012f, openBoxFloodLevel);
+            glm::vec3 maskColor = glm::vec3(0.0f, 1.0f, 0.25f);
+            glm::vec3 internalColor = glm::vec3(0.0f, 0.45f, 1.0f);
+            glm::vec3 invalidColor = glm::vec3(1.0f, 0.05f, 0.02f);
+            glm::vec3 outlineColor = (waterDebugMode == 10) ? invalidColor : ((openBoxFloodLevel > internalWaterThreshold) ? internalColor : maskColor);
+
+            auto toWorld = [&](glm::vec3 p) {
+                return glm::vec3(boxModel * glm::vec4(p, 1.0f));
+            };
+            auto drawRect = [&](float y, glm::vec3 color) {
+                glm::vec3 a = toWorld(glm::vec3(-inner, y, -inner));
+                glm::vec3 b = toWorld(glm::vec3( inner, y, -inner));
+                glm::vec3 c = toWorld(glm::vec3( inner, y,  inner));
+                glm::vec3 d = toWorld(glm::vec3(-inner, y,  inner));
+                drawDebugLine(a, b, color, vp.view, vp.proj);
+                drawDebugLine(b, c, color, vp.view, vp.proj);
+                drawDebugLine(c, d, color, vp.view, vp.proj);
+                drawDebugLine(d, a, color, vp.view, vp.proj);
+            };
+
+            drawRect(bottomY, outlineColor);
+            drawRect(topY, outlineColor);
+            if (openBoxFloodLevel > internalWaterThreshold) {
+                drawRect(waterY, internalColor);
+            }
+        }
 
         if (isFirstViewport) glEndQuery(GL_TIME_ELAPSED);
 
@@ -581,6 +687,35 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
 
                 if (glm::length(e.angularVelocityDebug) > 0.001f) {
                     drawDebugArrow(e.position + glm::vec3(0.0f, 0.2f, 0.0f), e.position + glm::vec3(0.0f, 0.2f, 0.0f) + e.angularVelocityDebug * 0.18f, glm::vec3(0.35f, 1.0f, 0.2f), vp.view, vp.proj);
+                }
+
+                size_t wallContactCount = e.debugWallContactPoints.size();
+                for (size_t i = 0; i < wallContactCount; ++i) {
+                    glm::vec3 p = e.debugWallContactPoints[i];
+                    glm::vec3 n = (i < e.debugWallContactNormals.size()) ? e.debugWallContactNormals[i] : glm::vec3(0.0f, 1.0f, 0.0f);
+                    glm::vec3 correction = (i < e.debugWallCorrectionVectors.size()) ? e.debugWallCorrectionVectors[i] : glm::vec3(0.0f);
+                    glm::vec3 impulse = (i < e.debugWallImpulseVectors.size()) ? e.debugWallImpulseVectors[i] : glm::vec3(0.0f);
+                    glm::vec3 tangent = (i < e.debugWallTangentialVelocities.size()) ? e.debugWallTangentialVelocities[i] : glm::vec3(0.0f);
+                    float depth = (i < e.debugWallPenetrationDepths.size()) ? e.debugWallPenetrationDepths[i] : 0.0f;
+                    float normalImpulse = (i < e.debugWallNormalImpulses.size()) ? e.debugWallNormalImpulses[i] : 0.0f;
+                    float frictionImpulse = (i < e.debugWallFrictionImpulses.size()) ? e.debugWallFrictionImpulses[i] : 0.0f;
+
+                    float marker = 0.045f + glm::clamp(depth, 0.0f, 0.08f);
+                    glm::vec3 contactColor = depth > 0.010f ? glm::vec3(1.0f, 0.05f, 0.03f) : glm::vec3(0.1f, 1.0f, 0.25f);
+                    drawDebugLine(p - glm::vec3(marker, 0.0f, 0.0f), p + glm::vec3(marker, 0.0f, 0.0f), contactColor, vp.view, vp.proj);
+                    drawDebugLine(p - glm::vec3(0.0f, marker, 0.0f), p + glm::vec3(0.0f, marker, 0.0f), contactColor, vp.view, vp.proj);
+                    drawDebugLine(p - glm::vec3(0.0f, 0.0f, marker), p + glm::vec3(0.0f, 0.0f, marker), contactColor, vp.view, vp.proj);
+
+                    drawDebugArrow(p, p + n * (0.20f + glm::clamp(depth * 5.0f, 0.0f, 0.35f)), glm::vec3(0.05f, 0.25f, 1.0f), vp.view, vp.proj);
+                    if (glm::length(correction) > 0.0001f) {
+                        drawDebugArrow(p, p + correction * 6.0f, glm::vec3(0.1f, 1.0f, 0.25f), vp.view, vp.proj);
+                    }
+                    if (glm::length(impulse) > 0.0001f) {
+                        drawDebugArrow(p, p + glm::normalize(impulse) * glm::clamp(normalImpulse * 0.04f, 0.05f, 0.45f), glm::vec3(1.0f, 0.85f, 0.05f), vp.view, vp.proj);
+                    }
+                    if (glm::length(tangent) > 0.0001f) {
+                        drawDebugArrow(p, p + glm::normalize(tangent) * glm::clamp(glm::length(tangent) * 0.08f + frictionImpulse * 0.03f, 0.04f, 0.35f), glm::vec3(1.0f, 0.55f, 0.05f), vp.view, vp.proj);
+                    }
                 }
                 
                 // Lever arm connection (thin line between CM and CB): gray

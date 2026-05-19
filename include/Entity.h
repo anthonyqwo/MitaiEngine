@@ -73,6 +73,14 @@ struct Entity {
     std::vector<float> debugRippleInjectionRadii;
     std::vector<float> debugRippleInjectionPressures;
     std::vector<float> debugRippleInjectionStrengths;
+    std::vector<glm::vec3> debugWallContactPoints;
+    std::vector<glm::vec3> debugWallContactNormals;
+    std::vector<glm::vec3> debugWallCorrectionVectors;
+    std::vector<glm::vec3> debugWallImpulseVectors;
+    std::vector<glm::vec3> debugWallTangentialVelocities;
+    std::vector<float> debugWallPenetrationDepths;
+    std::vector<float> debugWallNormalImpulses;
+    std::vector<float> debugWallFrictionImpulses;
     float submergedFraction = 0.0f;
     float floodLevel = 0.0f;
     float dryTimer = 0.0f;

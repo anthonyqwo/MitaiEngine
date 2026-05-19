@@ -1,7 +1,10 @@
 #include "Application.h"
+#include "AssetPath.h"
 #include <iostream>
 
 int main() {
+    AssetPath::makeRootCurrentDirectory();
+
     Application app;
     if (app.init()) {
         app.loadBuoyancyScene(3);
