@@ -229,12 +229,6 @@ void Application::loadDefaultScene() {
     lampEnt.hasCollision = false;
     scene->addEntity(lampEnt);
 
-    Entity waterHighlight("Water Highlight Light", CUBE, glm::vec3(3.8f, 2.3f, 0.0f), glm::vec3(0.45f, 0.75f, 1.0f));
-    waterHighlight.isLight = true; waterHighlight.lightColor = glm::vec3(0.45f, 0.75f, 1.0f);
-    waterHighlight.lightIntensity = 6.0f; waterHighlight.scale = glm::vec3(0.16f);
-    waterHighlight.hasCollision = false;
-    scene->addEntity(waterHighlight);
-    
     Entity partEnt("Particle Source", PARTICLE, glm::vec3(0, 1.0f, 0), glm::vec3(124.0f/255.0f, 117.0f/255.0f, 112.0f/255.0f));
     partEnt.hasCollision = false;
     scene->addEntity(partEnt);
@@ -325,12 +319,6 @@ void Application::loadWorldScene() {
     lampEnt.lightIntensity = 3.0f; lampEnt.scale = glm::vec3(0.15f);
     lampEnt.hasCollision = false;
     scene->addEntity(lampEnt);
-
-    Entity waterHighlight("Water Highlight Light", CUBE, glm::vec3(3.8f, 2.3f, 0.0f), glm::vec3(0.45f, 0.75f, 1.0f));
-    waterHighlight.isLight = true; waterHighlight.lightColor = glm::vec3(0.45f, 0.75f, 1.0f);
-    waterHighlight.lightIntensity = 6.0f; waterHighlight.scale = glm::vec3(0.16f);
-    waterHighlight.hasCollision = false;
-    scene->addEntity(waterHighlight);
 
     // === Ground Terrain (large grass-textured floor) ===
     // Floor geometry Y=0 locally, positioned at Y=-0.5 like Water Demo
@@ -515,17 +503,11 @@ void Application::loadBuoyancyScene(int scenario) {
     sunEnt.hasCollision = false;
     scene->addEntity(sunEnt);
 
-    Entity lampEnt("Point Light", CUBE, glm::vec3(-3.0f, 6.0f, 3.0f), glm::vec3(1.0f, 0.6f, 0.2f));
+    Entity lampEnt("Point Light", CUBE, glm::vec3(0.0f, 6.8f, 0.0f), glm::vec3(1.0f, 0.6f, 0.2f));
     lampEnt.isLight = true; lampEnt.lightColor = glm::vec3(1.0f, 0.6f, 0.2f);
     lampEnt.lightIntensity = 3.0f; lampEnt.scale = glm::vec3(0.2f);
     lampEnt.hasCollision = false;
     scene->addEntity(lampEnt);
-
-    Entity waterHighlight("Water Highlight Light", CUBE, glm::vec3(3.8f, 6.8f, 0.0f), glm::vec3(0.45f, 0.75f, 1.0f));
-    waterHighlight.isLight = true; waterHighlight.lightColor = glm::vec3(0.45f, 0.75f, 1.0f);
-    waterHighlight.lightIntensity = 8.0f; waterHighlight.scale = glm::vec3(0.18f);
-    waterHighlight.hasCollision = false;
-    scene->addEntity(waterHighlight);
 
     // 5. Spawn Buoyant Entities based on Scenario A/B/C/D
     if (scenario == 0 || scenario == 3) { // Hollow Sphere (Scenario A or D)

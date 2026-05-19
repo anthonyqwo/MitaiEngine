@@ -4,6 +4,7 @@
 #include <glm/gtc/matrix_transform.hpp>
 #include <glm/gtc/constants.hpp>
 #include <algorithm>
+#include <limits>
 #include "ResourceManager.h"
 #include <iostream>
 #include <GLFW/glfw3.h>
@@ -414,20 +415,17 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
         forwardWaterShader->setVec3("light1.color", glm::vec3(0.0f));
         forwardWaterShader->setVec3("light2.color", glm::vec3(0.0f));
         const Entity* fallbackWaterPointLight = nullptr;
-        const Entity* highlightWaterPointLight = nullptr;
         // Lights for water
         for(const auto& e : scene->entities){
             if(!e.isLight || !e.visible) continue;
             if(e.name == "Main Sun") {
                 forwardWaterShader->setVec3("light1.position", e.position);
                 forwardWaterShader->setVec3("light1.color", e.lightColor * e.lightIntensity);
-            } else if(e.name == "Water Highlight Light") {
-                highlightWaterPointLight = &e;
             } else if(e.name == "Point Light" && fallbackWaterPointLight == nullptr) {
                 fallbackWaterPointLight = &e;
             }
         }
-        const Entity* waterPointLight = highlightWaterPointLight ? highlightWaterPointLight : fallbackWaterPointLight;
+        const Entity* waterPointLight = fallbackWaterPointLight;
         if (waterPointLight) {
             forwardWaterShader->setVec3("light2.position", waterPointLight->position);
             forwardWaterShader->setVec3("light2.color", waterPointLight->lightColor * waterPointLight->lightIntensity);
@@ -446,12 +444,14 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
             }
         }
         constexpr float openBoxWallThickness = 0.05f;
-        constexpr float internalWaterThreshold = 0.025f;
+        constexpr float internalWaterVisibleThreshold = 0.001f;
         float openBoxFloodLevel = openBoxClipEntity ? glm::clamp(openBoxClipEntity->floodLevel, 0.0f, 1.0f) : 0.0f;
+        float internalWaterAlpha = glm::smoothstep(0.0f, 0.08f, openBoxFloodLevel);
         forwardWaterShader->setBool("u_openBoxClipEnabled", openBoxClipEntity != nullptr);
         forwardWaterShader->setFloat("u_openBoxWallThickness", openBoxWallThickness);
         forwardWaterShader->setFloat("u_openBoxFloodLevel", openBoxFloodLevel);
         forwardWaterShader->setFloat("u_internalWaterLocalHeight", -0.5f + openBoxWallThickness);
+        forwardWaterShader->setFloat("u_internalWaterAlpha", 1.0f);
         if (openBoxClipEntity) {
             forwardWaterShader->setMat4("u_openBoxInverseModel", glm::inverse(openBoxClipEntity->getModelMatrix()));
         } else {
@@ -497,14 +497,30 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
             }
         }
 
-        if (openBoxClipEntity && openBoxFloodLevel > internalWaterThreshold) {
-            float innerSpan = 1.0f - 2.0f * openBoxWallThickness;
+        if (openBoxClipEntity && openBoxFloodLevel > internalWaterVisibleThreshold && internalWaterAlpha > 0.01f) {
+            float innerHalf = 0.5f - openBoxWallThickness;
             float localBottom = -0.5f + openBoxWallThickness + 0.004f;
             float localTop = 0.5f - 0.012f;
-            float localWaterY = glm::mix(localBottom, localTop, openBoxFloodLevel);
-            glm::mat4 internalWaterModel = openBoxClipEntity->getModelMatrix();
-            internalWaterModel = glm::translate(internalWaterModel, glm::vec3(0.0f, localWaterY, 0.0f));
-            internalWaterModel = glm::scale(internalWaterModel, glm::vec3(innerSpan / 14.0f, 1.0f, innerSpan / 14.0f));
+            glm::mat4 boxModel = openBoxClipEntity->getModelMatrix();
+            float minCavityY = std::numeric_limits<float>::max();
+            float maxCavityY = -std::numeric_limits<float>::max();
+            for (int ix = 0; ix < 2; ++ix) {
+                float x = ix == 0 ? -innerHalf : innerHalf;
+                for (int iy = 0; iy < 2; ++iy) {
+                    float y = iy == 0 ? localBottom : localTop;
+                    for (int iz = 0; iz < 2; ++iz) {
+                        float z = iz == 0 ? -innerHalf : innerHalf;
+                        float worldY = (boxModel * glm::vec4(x, y, z, 1.0f)).y;
+                        minCavityY = glm::min(minCavityY, worldY);
+                        maxCavityY = glm::max(maxCavityY, worldY);
+                    }
+                }
+            }
+
+            float waterWorldY = glm::mix(minCavityY + 0.004f, maxCavityY - 0.012f, openBoxFloodLevel);
+            float worldPlaneSpan = glm::max(glm::length(openBoxClipEntity->scale) * 1.35f, 0.5f);
+            glm::mat4 internalWaterModel = glm::translate(glm::mat4(1.0f), glm::vec3(openBoxClipEntity->position.x, waterWorldY, openBoxClipEntity->position.z));
+            internalWaterModel = glm::scale(internalWaterModel, glm::vec3(worldPlaneSpan / 14.0f, 1.0f, worldPlaneSpan / 14.0f));
 
             forwardWaterShader->setMat4("model", internalWaterModel);
             forwardWaterShader->setFloat("roughness", 0.08f);
@@ -514,8 +530,9 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
             forwardWaterShader->setFloat("reflectivity", 0.30f + 0.30f * openBoxFloodLevel);
             forwardWaterShader->setBool("isWater", true);
             forwardWaterShader->setBool("u_isInternalBoxWater", true);
-            forwardWaterShader->setBool("u_openBoxClipEnabled", false);
-            forwardWaterShader->setFloat("u_internalWaterLocalHeight", localWaterY);
+            forwardWaterShader->setBool("u_openBoxClipEnabled", true);
+            forwardWaterShader->setFloat("u_internalWaterLocalHeight", waterWorldY);
+            forwardWaterShader->setFloat("u_internalWaterAlpha", internalWaterAlpha);
             forwardWaterShader->setMat4("textureMatrix", glm::mat4(1.0f));
 
             if (waterGridVAO != 0) {
@@ -536,6 +553,7 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
 
             forwardWaterShader->setBool("u_isInternalBoxWater", false);
             forwardWaterShader->setBool("u_openBoxClipEnabled", openBoxClipEntity != nullptr);
+            forwardWaterShader->setFloat("u_internalWaterAlpha", 1.0f);
         }
         glDepthMask(GL_TRUE);
 
@@ -572,11 +590,25 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
             float inner = 0.5f - openBoxWallThickness;
             float bottomY = -0.5f + openBoxWallThickness;
             float topY = 0.5f;
-            float waterY = glm::mix(bottomY + 0.004f, topY - 0.012f, openBoxFloodLevel);
+            float minCavityY = std::numeric_limits<float>::max();
+            float maxCavityY = -std::numeric_limits<float>::max();
+            for (int ix = 0; ix < 2; ++ix) {
+                float x = ix == 0 ? -inner : inner;
+                for (int iy = 0; iy < 2; ++iy) {
+                    float y = iy == 0 ? bottomY + 0.004f : topY - 0.012f;
+                    for (int iz = 0; iz < 2; ++iz) {
+                        float z = iz == 0 ? -inner : inner;
+                        float worldY = (boxModel * glm::vec4(x, y, z, 1.0f)).y;
+                        minCavityY = glm::min(minCavityY, worldY);
+                        maxCavityY = glm::max(maxCavityY, worldY);
+                    }
+                }
+            }
+            float waterY = glm::mix(minCavityY + 0.004f, maxCavityY - 0.012f, openBoxFloodLevel);
             glm::vec3 maskColor = glm::vec3(0.0f, 1.0f, 0.25f);
             glm::vec3 internalColor = glm::vec3(0.0f, 0.45f, 1.0f);
             glm::vec3 invalidColor = glm::vec3(1.0f, 0.05f, 0.02f);
-            glm::vec3 outlineColor = (waterDebugMode == 10) ? invalidColor : ((openBoxFloodLevel > internalWaterThreshold) ? internalColor : maskColor);
+            glm::vec3 outlineColor = (waterDebugMode == 10) ? invalidColor : ((openBoxFloodLevel > internalWaterVisibleThreshold) ? internalColor : maskColor);
 
             auto toWorld = [&](glm::vec3 p) {
                 return glm::vec3(boxModel * glm::vec4(p, 1.0f));
@@ -594,8 +626,17 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
 
             drawRect(bottomY, outlineColor);
             drawRect(topY, outlineColor);
-            if (openBoxFloodLevel > internalWaterThreshold) {
-                drawRect(waterY, internalColor);
+            if (openBoxFloodLevel > internalWaterVisibleThreshold && internalWaterAlpha > 0.01f) {
+                float halfSpan = glm::max(glm::length(openBoxClipEntity->scale) * 0.68f, 0.25f);
+                glm::vec3 c(openBoxClipEntity->position.x, waterY, openBoxClipEntity->position.z);
+                glm::vec3 a = c + glm::vec3(-halfSpan, 0.0f, -halfSpan);
+                glm::vec3 b = c + glm::vec3( halfSpan, 0.0f, -halfSpan);
+                glm::vec3 d = c + glm::vec3(-halfSpan, 0.0f,  halfSpan);
+                glm::vec3 e = c + glm::vec3( halfSpan, 0.0f,  halfSpan);
+                drawDebugLine(a, b, internalColor, vp.view, vp.proj);
+                drawDebugLine(b, e, internalColor, vp.view, vp.proj);
+                drawDebugLine(e, d, internalColor, vp.view, vp.proj);
+                drawDebugLine(d, a, internalColor, vp.view, vp.proj);
             }
         }
 

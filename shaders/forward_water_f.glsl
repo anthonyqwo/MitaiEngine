@@ -63,6 +63,7 @@ uniform mat4 u_openBoxInverseModel;
 uniform float u_openBoxWallThickness;
 uniform float u_openBoxFloodLevel;
 uniform float u_internalWaterLocalHeight;
+uniform float u_internalWaterAlpha;
 uniform bool u_isInternalBoxWater;
 
 #include "gerstner_common.glsl"
@@ -84,6 +85,18 @@ const vec2 poissonDisk[9] = vec2[](
 
 bool insideOpenBoxInterior(vec3 worldPos) {
     if (!u_openBoxClipEnabled) return false;
+
+    vec3 p = vec3(u_openBoxInverseModel * vec4(worldPos, 1.0));
+    float t = clamp(u_openBoxWallThickness, 0.0, 0.49);
+    vec3 q = abs(p);
+
+    bool insideInnerFootprint = q.x < 0.5 - t && q.z < 0.5 - t;
+    bool insideCavityHeight = p.y >= -0.5 + t && p.y <= 0.5;
+    return insideInnerFootprint && insideCavityHeight;
+}
+
+bool insideOpenBoxInnerFootprint(vec3 worldPos) {
+    if (!u_openBoxClipEnabled) return true;
 
     vec3 p = vec3(u_openBoxInverseModel * vec4(worldPos, 1.0));
     float t = clamp(u_openBoxWallThickness, 0.0, 0.49);
@@ -192,6 +205,10 @@ void main() {
     }
 
     // 1. 採樣與 PBR 頻道解析
+    if (isWater && u_isInternalBoxWater && !insideOpenBoxInnerFootprint(fs_in.FragPos)) {
+        discard;
+    }
+
     bool clippedByDryCavity = isWater && !u_isInternalBoxWater && insideOpenBoxInterior(fs_in.FragPos);
     if (clippedByDryCavity && u_waterDebugMode == 8) {
         FragColor = vec4(0.0, 1.0, 0.25, 1.0);
@@ -411,6 +428,9 @@ void main() {
         alpha = mix(baseAlpha + depthAlpha, 0.94, waterFresnel);
         alpha += waterFog * 0.12 + waterAbsorption * 0.10 + waveCrest * 0.08 + waveSlope * 0.04;
         alpha = clamp(alpha, 0.58, 0.97);
+        if (u_isInternalBoxWater) {
+            alpha *= clamp(u_internalWaterAlpha, 0.0, 1.0);
+        }
 
         if (u_waterDebugMode == 1) {
             FragColor = vec4(vec3(alpha), 1.0);
