@@ -19,6 +19,7 @@
 #include "AssetPath.h"
 #include "IBLBaker.h"
 #include "RippleSystem.h"
+#include "AISystem.h"
 
 Application* Application::s_instance = nullptr;
 
@@ -46,6 +47,9 @@ Application::Application() {
     shadowBias = 0.005f;
     pcfRadius = 1.5f;
     selectedEntityIndex = -1;
+    enablePlayerGravity = false;
+    cameraVelocityY = 0.0f;
+    cameraIsGrounded = false;
 }
 
 Application::~Application() {
@@ -433,6 +437,186 @@ void Application::loadWorldScene() {
     scene->addEntity(fenceRail);
 }
 
+void Application::loadAIHuntingScene() {
+    physicsSystem->reset();
+    scene->entities.clear();
+    selectedEntityIndex = -1;
+    isCollisionDemo = false;
+    isBuoyancyScene = false;
+    isAIScene = true;
+    followPredatorCam = false;
+
+    // 1. Camera setup: overhead overviewing the house floor
+    scene->camera.Position = glm::vec3(0.0f, 28.0f, 0.1f);
+    scene->camera.Pitch = -89.9f; // Look straight down!
+    scene->camera.Yaw = -90.0f;
+    scene->camera.ProcessMouseMovement(0, 0); // Update camera vectors
+
+    // 2. Lights
+    // Main Sun
+    Entity sunEnt("Main Sun", CUBE, glm::vec3(0.0f, 25.5f, 0.0f), glm::vec3(1.0f));
+    sunEnt.isLight = true; sunEnt.lightColor = glm::vec3(1.0f); sunEnt.lightIntensity = 4.0f; sunEnt.scale = glm::vec3(0.5f);
+    sunEnt.hasCollision = false;
+    scene->addEntity(sunEnt);
+
+    // Point Light in Center
+    Entity pointLight("Point Light", CUBE, glm::vec3(0.0f, 5.0f, 0.0f), glm::vec3(1.0f, 0.85f, 0.65f));
+    pointLight.isLight = true; pointLight.lightColor = glm::vec3(1.0f, 0.85f, 0.65f); pointLight.lightIntensity = 2.5f; pointLight.scale = glm::vec3(0.3f);
+    pointLight.hasCollision = false;
+    scene->addEntity(pointLight);
+
+    // 3. Floor (30m x 30m) - Overridden with dynamic 1x1 Slate Gray solid texture
+    unsigned char floorColor[] = { 30, 35, 45, 255 }; // Sleek Slate Gray
+    unsigned int solidFloorTex;
+    glGenTextures(1, &solidFloorTex);
+    glBindTexture(GL_TEXTURE_2D, solidFloorTex);
+    glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA, 1, 1, 0, GL_RGBA, GL_UNSIGNED_BYTE, floorColor);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_NEAREST);
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_NEAREST);
+    ResourceManager::Textures["floorDiff"] = solidFloorTex;
+
+    Entity floor("Floor", FLOOR, glm::vec3(0.0f, -0.5f, 0.0f), glm::vec3(0.12f, 0.14f, 0.18f));
+    floor.scale = glm::vec3(30.0f, 1.0f, 30.0f);
+    floor.localBounds = AABB(glm::vec3(-0.5f, -0.5f, -0.5f), glm::vec3(0.5f, 0.5f, 0.5f));
+    floor.mass = 0.0f;
+    floor.roughness = 0.70f; floor.metallic = 0.05f; floor.reflectivity = 0.05f;
+    scene->addEntity(floor);
+
+    // 4. Outer Walls (Sleek Dark Mirror Glass)
+    // Left
+    Entity wallL("wall_outer_left", CUBE, glm::vec3(-15.5f, 1.0f, 0.0f), glm::vec3(0.08f, 0.09f, 0.11f));
+    wallL.scale = glm::vec3(1.0f, 3.0f, 32.0f);
+    wallL.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    wallL.mass = 0.0f;
+    wallL.roughness = 0.02f; wallL.metallic = 0.05f; wallL.reflectivity = 0.95f;
+    wallL.hasCollision = true;
+    scene->addEntity(wallL);
+
+    // Right
+    Entity wallR("wall_outer_right", CUBE, glm::vec3(15.5f, 1.0f, 0.0f), glm::vec3(0.08f, 0.09f, 0.11f));
+    wallR.scale = glm::vec3(1.0f, 3.0f, 32.0f);
+    wallR.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    wallR.mass = 0.0f;
+    wallR.roughness = 0.02f; wallR.metallic = 0.05f; wallR.reflectivity = 0.95f;
+    wallR.hasCollision = true;
+    scene->addEntity(wallR);
+
+    // Back (Far)
+    Entity wallB("wall_outer_back", CUBE, glm::vec3(0.0f, 1.0f, -15.5f), glm::vec3(0.08f, 0.09f, 0.11f));
+    wallB.scale = glm::vec3(32.0f, 3.0f, 1.0f);
+    wallB.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    wallB.mass = 0.0f;
+    wallB.roughness = 0.02f; wallB.metallic = 0.05f; wallB.reflectivity = 0.95f;
+    wallB.hasCollision = true;
+    scene->addEntity(wallB);
+
+    // Front (Near)
+    Entity wallF("wall_outer_front", CUBE, glm::vec3(0.0f, 1.0f, 15.5f), glm::vec3(0.08f, 0.09f, 0.11f));
+    wallF.scale = glm::vec3(32.0f, 3.0f, 1.0f);
+    wallF.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    wallF.mass = 0.0f;
+    wallF.roughness = 0.02f; wallF.metallic = 0.05f; wallF.reflectivity = 0.95f;
+    wallF.hasCollision = true;
+    scene->addEntity(wallF);
+
+    // 5. Grand Central Vertical Arena (Multi-level PBR Translucent Glass Platforms)
+    // Level 1: Low-level platforms and steps
+    // Central Low Platform (Amber Gold Glass)
+    Entity platCenter("platform_center", CUBE, glm::vec3(0.0f, 0.3f, 0.0f), glm::vec3(0.95f, 0.6f, 0.15f));
+    platCenter.scale = glm::vec3(7.0f, 0.6f, 7.0f);
+    platCenter.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    platCenter.mass = 0.0f;
+    platCenter.roughness = 0.02f; platCenter.metallic = 0.1f; platCenter.reflectivity = 0.95f;
+    platCenter.hasCollision = true;
+    scene->addEntity(platCenter);
+
+    // East Step (Ice Blue Glass)
+    Entity platStepE("platform_step_east", CUBE, glm::vec3(6.0f, 0.15f, 0.0f), glm::vec3(0.2f, 0.6f, 0.95f));
+    platStepE.scale = glm::vec3(3.0f, 0.3f, 3.0f);
+    platStepE.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    platStepE.mass = 0.0f;
+    platStepE.roughness = 0.02f; platStepE.metallic = 0.1f; platStepE.reflectivity = 0.95f;
+    platStepE.hasCollision = true;
+    scene->addEntity(platStepE);
+
+    // West Step (Ice Blue Glass)
+    Entity platStepW("platform_step_west", CUBE, glm::vec3(-6.0f, 0.15f, 0.0f), glm::vec3(0.2f, 0.6f, 0.95f));
+    platStepW.scale = glm::vec3(3.0f, 0.3f, 3.0f);
+    platStepW.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    platStepW.mass = 0.0f;
+    platStepW.roughness = 0.02f; platStepW.metallic = 0.1f; platStepW.reflectivity = 0.95f;
+    platStepW.hasCollision = true;
+    scene->addEntity(platStepW);
+
+    // North Step (Ice Blue Glass)
+    Entity platStepN("platform_step_north", CUBE, glm::vec3(0.0f, 0.15f, -6.0f), glm::vec3(0.2f, 0.6f, 0.95f));
+    platStepN.scale = glm::vec3(3.0f, 0.3f, 3.0f);
+    platStepN.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    platStepN.mass = 0.0f;
+    platStepN.roughness = 0.02f; platStepN.metallic = 0.1f; platStepN.reflectivity = 0.95f;
+    platStepN.hasCollision = true;
+    scene->addEntity(platStepN);
+
+    // South Step (Ice Blue Glass)
+    Entity platStepS("platform_step_south", CUBE, glm::vec3(0.0f, 0.15f, 6.0f), glm::vec3(0.2f, 0.6f, 0.95f));
+    platStepS.scale = glm::vec3(3.0f, 0.3f, 3.0f);
+    platStepS.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    platStepS.mass = 0.0f;
+    platStepS.roughness = 0.02f; platStepS.metallic = 0.1f; platStepS.reflectivity = 0.95f;
+    platStepS.hasCollision = true;
+    scene->addEntity(platStepS);
+
+    // Level 2: High core tower, side high platforms, and air bridges
+    // High Core Tower (Emerald Green Glass - sits on top of platCenter)
+    Entity platCoreHigh("platform_core_high", CUBE, glm::vec3(0.0f, 1.4f, 0.0f), glm::vec3(0.1f, 0.8f, 0.4f));
+    platCoreHigh.scale = glm::vec3(4.0f, 1.6f, 4.0f);
+    platCoreHigh.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    platCoreHigh.mass = 0.0f;
+    platCoreHigh.roughness = 0.02f; platCoreHigh.metallic = 0.1f; platCoreHigh.reflectivity = 0.95f;
+    platCoreHigh.hasCollision = true;
+    scene->addEntity(platCoreHigh);
+
+    // High East Platform (Rose Pink Glass)
+    Entity platHighE("platform_high_east", CUBE, glm::vec3(8.0f, 0.9f, 4.0f), glm::vec3(0.9f, 0.3f, 0.6f));
+    platHighE.scale = glm::vec3(3.0f, 1.8f, 3.0f);
+    platHighE.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    platHighE.mass = 0.0f;
+    platHighE.roughness = 0.02f; platHighE.metallic = 0.1f; platHighE.reflectivity = 0.95f;
+    platHighE.hasCollision = true;
+    scene->addEntity(platHighE);
+
+    // High West Platform (Rose Pink Glass)
+    Entity platHighW("platform_high_west", CUBE, glm::vec3(-8.0f, 0.9f, -4.0f), glm::vec3(0.9f, 0.3f, 0.6f));
+    platHighW.scale = glm::vec3(3.0f, 1.8f, 3.0f);
+    platHighW.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    platHighW.mass = 0.0f;
+    platHighW.roughness = 0.02f; platHighW.metallic = 0.1f; platHighW.reflectivity = 0.95f;
+    platHighW.hasCollision = true;
+    scene->addEntity(platHighW);
+
+    // East Bridge connecting Core Tower to High East Platform (Purple Amethyst Glass)
+    Entity platBridgeE("platform_bridge_east", CUBE, glm::vec3(4.0f, 1.0f, 2.0f), glm::vec3(0.6f, 0.2f, 0.85f));
+    platBridgeE.scale = glm::vec3(4.0f, 0.8f, 1.5f);
+    platBridgeE.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    platBridgeE.mass = 0.0f;
+    platBridgeE.roughness = 0.02f; platBridgeE.metallic = 0.1f; platBridgeE.reflectivity = 0.95f;
+    platBridgeE.hasCollision = true;
+    scene->addEntity(platBridgeE);
+
+    // West Bridge connecting Core Tower to High West Platform (Purple Amethyst Glass)
+    Entity platBridgeW("platform_bridge_west", CUBE, glm::vec3(-4.0f, 1.0f, -2.0f), glm::vec3(0.6f, 0.2f, 0.85f));
+    platBridgeW.scale = glm::vec3(4.0f, 0.8f, 1.5f);
+    platBridgeW.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    platBridgeW.mass = 0.0f;
+    platBridgeW.roughness = 0.02f; platBridgeW.metallic = 0.1f; platBridgeW.reflectivity = 0.95f;
+    platBridgeW.hasCollision = true;
+    scene->addEntity(platBridgeW);
+
+    // 7. Initialize and setup the AI system
+    AISystem::instance().initializeGrid(-15.0f, 15.0f, -15.0f, 15.0f, 1.0f);
+    AISystem::instance().setupScene(scene);
+}
+
 void Application::loadBuoyancyScene(int scenario) {
     physicsSystem->reset();
     scene->entities.clear();
@@ -647,7 +831,11 @@ void Application::processInput() {
 
     static bool keyF1P = false;
     if (glfwGetKey(window, GLFW_KEY_F1) == GLFW_PRESS && !keyF1P) {
-        debugBuoyancy = !debugBuoyancy;
+        if (isAIScene) {
+            AISystem::instance().setDebugEnabled(!AISystem::instance().isDebugEnabled());
+        } else {
+            debugBuoyancy = !debugBuoyancy;
+        }
         keyF1P = true;
     } else if (glfwGetKey(window, GLFW_KEY_F1) == GLFW_RELEASE) {
         keyF1P = false;
@@ -696,10 +884,56 @@ void Application::processInput() {
         if (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) movement -= horizontalFront * velocity; 
         if (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) movement -= scene->camera.Right * velocity; 
         if (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS) movement += scene->camera.Right * velocity; 
-        if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) movement += scene->camera.WorldUp * velocity;
-        if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) movement -= scene->camera.WorldUp * velocity;
         
-        scene->processCollisions(movement);
+        if (isAIScene && enablePlayerGravity) {
+            const float gravity = -12.0f;
+            const float jumpForce = 5.5f;
+            
+            if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS && cameraIsGrounded) {
+                cameraVelocityY = jumpForce;
+                cameraIsGrounded = false;
+            }
+            
+            // Apply gravity
+            cameraVelocityY += gravity * deltaTime;
+            if (cameraVelocityY < -20.0f) cameraVelocityY = -20.0f;
+            
+            movement.y = cameraVelocityY * deltaTime;
+            
+            bool collidedY = scene->processCollisions(movement);
+            if (collidedY) {
+                if (cameraVelocityY < 0.0f) {
+                    cameraIsGrounded = true;
+                }
+                cameraVelocityY = 0.0f;
+            } else {
+                // Ground check: test if a tiny downward movement of 0.01f collides
+                glm::vec3 testPos = scene->camera.Position;
+                scene->camera.Position.y -= 0.01f;
+                AABB camAABB(scene->camera.Position - glm::vec3(scene->camera.collisionRadius), scene->camera.Position + glm::vec3(scene->camera.collisionRadius));
+                bool wouldCollide = false;
+                for (const auto& e : scene->entities) {
+                    if (e.hasCollision && camAABB.intersects(e.getGlobalBounds())) {
+                        wouldCollide = true;
+                        break;
+                    }
+                }
+                scene->camera.Position = testPos; // Restore
+                
+                if (wouldCollide) {
+                    cameraIsGrounded = true;
+                    if (cameraVelocityY < 0.0f) cameraVelocityY = 0.0f;
+                } else {
+                    cameraIsGrounded = false;
+                }
+            }
+        } else {
+            if (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS) movement += scene->camera.WorldUp * velocity;
+            if (glfwGetKey(window, GLFW_KEY_LEFT_SHIFT) == GLFW_PRESS) movement -= scene->camera.WorldUp * velocity;
+            scene->processCollisions(movement);
+            cameraVelocityY = 0.0f;
+            cameraIsGrounded = false;
+        }
     }
 
     // 3D Mouse Grabbing & Viewport Drag Plane Controller
@@ -967,11 +1201,13 @@ void Application::renderImGui() {
       ImGui::End(); }
     { ImGui::Begin("Engine Controls"); 
       ImGui::Text("Active Scene");
-      static int currentSceneIdx = 3;
+      static int currentSceneIdx = 4;
       if (isCollisionDemo) {
           currentSceneIdx = 1;
       } else if (isBuoyancyScene) {
           currentSceneIdx = 3;
+      } else if (isAIScene) {
+          currentSceneIdx = 4;
       } else {
           if (ResourceManager::getTexture("floorDiff") == ResourceManager::getTexture("grassDiff")) {
               currentSceneIdx = 2;
@@ -980,7 +1216,7 @@ void Application::renderImGui() {
           }
       }
       
-      const char* sceneNames[] = { "Water Demo", "Collision Demo", "World Demo", "Buoyancy Demo" };
+      const char* sceneNames[] = { "Water Demo", "Collision Demo", "World Demo", "Buoyancy Demo", "AI Hunting Demo" };
       int selectedIdx = currentSceneIdx;
       if (ImGui::Combo("##ActiveScene", &selectedIdx, sceneNames, IM_ARRAYSIZE(sceneNames))) {
           physicsSystem->reset();
@@ -989,18 +1225,27 @@ void Application::renderImGui() {
               loadDefaultScene();
               isCollisionDemo = false;
               isBuoyancyScene = false;
+              isAIScene = false;
           } else if (selectedIdx == 1) {
               loadCollisionDemoScene();
               isCollisionDemo = true;
               isBuoyancyScene = false;
+              isAIScene = false;
           } else if (selectedIdx == 2) {
               loadWorldScene();
               isCollisionDemo = false;
               isBuoyancyScene = false;
+              isAIScene = false;
           } else if (selectedIdx == 3) {
               loadBuoyancyScene(3);
               isCollisionDemo = false;
               isBuoyancyScene = true;
+              isAIScene = false;
+          } else if (selectedIdx == 4) {
+              loadAIHuntingScene();
+              isCollisionDemo = false;
+              isBuoyancyScene = false;
+              isAIScene = true;
           }
       }
       
@@ -1018,6 +1263,97 @@ void Application::renderImGui() {
               loadBuoyancyScene(activeScenario);
           }
           ImGui::Checkbox("Debug Overlay (F1 Key)", &debugBuoyancy);
+          ImGui::Separator();
+      }
+      if (isAIScene) {
+          ImGui::Separator();
+          ImGui::Text("AI Hunting Game Controls");
+          
+          SimRoundState state = AISystem::instance().getRoundState();
+          const char* roundStateStr = "Unknown";
+          if (state == ROUND_PREDATOR_1_RUN) roundStateStr = "Predator 1 Run";
+          else if (state == ROUND_PREDATOR_1_FINISHED) roundStateStr = "Predator 1 Finished";
+          else if (state == ROUND_PREDATOR_2_RUN) roundStateStr = "Predator 2 Run";
+          else if (state == ROUND_SIMULATION_FINISHED) roundStateStr = "Simulation Finished";
+          
+          ImGui::Text("Round State: %s", roundStateStr);
+          ImGui::Text("Time Remaining: %.1f seconds", AISystem::instance().getRemainingTime());
+          
+          ImGui::Separator();
+          ImGui::Text("Scoreboard");
+          ImGui::Text("Predator 1 (Greedy): %d", AISystem::instance().getPredator1Score());
+          ImGui::Text("Predator 2 (Utility): %d", AISystem::instance().getPredator2Score());
+          
+          if (state == ROUND_SIMULATION_FINISHED) {
+              int p1Score = AISystem::instance().getPredator1Score();
+              int p2Score = AISystem::instance().getPredator2Score();
+              ImGui::Separator();
+              if (p1Score > p2Score) {
+                  ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "WINNER: Predator 1 (Greedy)!");
+              } else if (p2Score > p1Score) {
+                  ImGui::TextColored(ImVec4(0.0f, 1.0f, 0.0f, 1.0f), "WINNER: Predator 2 (Utility)!");
+              } else {
+                  ImGui::TextColored(ImVec4(1.0f, 1.0f, 0.0f, 1.0f), "WINNER: It's a Tie!");
+              }
+          }
+          
+          ImGui::Separator();
+          if (ImGui::Button("Reset All (P1 Start)")) {
+              AISystem::instance().forceResetAll(scene);
+          }
+          ImGui::SameLine();
+          if (ImGui::Button("Next Round")) {
+              AISystem::instance().startNextRound(scene);
+          }
+          
+          bool debugOverlay = AISystem::instance().isDebugEnabled();
+          if (ImGui::Checkbox("AI Debug Overlay (F1 Key)", &debugOverlay)) {
+              AISystem::instance().setDebugEnabled(debugOverlay);
+          }
+          ImGui::SameLine();
+          if (ImGui::Checkbox("Enemy Perspective", &followPredatorCam)) {
+              if (!followPredatorCam) {
+                  scene->camera.Position = glm::vec3(0.0f, 28.0f, 0.1f);
+                  scene->camera.Pitch = -89.9f;
+                  scene->camera.Yaw = -90.0f;
+                  scene->camera.ProcessMouseMovement(0.0f, 0.0f);
+              }
+          }
+          
+          ImGui::Checkbox("Player Gravity", &enablePlayerGravity);
+          ImGui::SameLine();
+          if (ImGui::Button("Teleport to Ground")) {
+              scene->camera.Position = glm::vec3(0.0f, 1.5f, 13.0f);
+              scene->camera.Pitch = 0.0f;
+              scene->camera.Yaw = -90.0f;
+              scene->camera.ProcessMouseMovement(0.0f, 0.0f);
+              cameraVelocityY = 0.0f;
+              cameraIsGrounded = false;
+          }
+          
+          ImGui::Separator();
+          ImGui::Text("Simulation Constants");
+          
+          int seed = AISystem::instance().getSeed();
+          if (ImGui::SliderInt("Seed", &seed, 1, 10000)) {
+              AISystem::instance().setSeed(seed);
+          }
+          
+          float roundDur = AISystem::instance().getRoundDuration();
+          if (ImGui::SliderFloat("Round Duration", &roundDur, 5.0f, 120.0f, "%.1fs")) {
+              AISystem::instance().setRoundDuration(roundDur);
+          }
+          
+          ImGui::SliderFloat("Green Prey Speed Coef", &AISystem::instance().preyGreenSpeedCoef, 0.1f, 3.0f, "%.2f");
+          ImGui::SliderFloat("Blue Prey Speed Coef", &AISystem::instance().preyBlueSpeedCoef, 0.1f, 3.0f, "%.2f");
+          ImGui::SliderFloat("Predator Speed Coef", &AISystem::instance().predatorSpeedCoef, 0.1f, 3.0f, "%.2f");
+          
+          ImGui::SliderFloat("Green Prey Vision Range", &AISystem::instance().preyGreenVisionRange, 1.0f, 20.0f, "%.1fm");
+          ImGui::SliderFloat("Blue Prey Vision Range", &AISystem::instance().preyBlueVisionRange, 1.0f, 25.0f, "%.1fm");
+          ImGui::SliderFloat("Predator 1 Vision Range", &AISystem::instance().predator1VisionRange, 1.0f, 30.0f, "%.1fm");
+          ImGui::SliderFloat("Predator 2 Vision Range", &AISystem::instance().predator2VisionRange, 1.0f, 30.0f, "%.1fm");
+          
+          ImGui::Text("Tip: Ctrl+Click sliders to type numbers manually");
           ImGui::Separator();
       }
       ImGui::Checkbox("Normal Map", &useNormalMap); ImGui::SameLine(); ImGui::Checkbox("Light 2 Moving", &light2Moving);
@@ -1170,6 +1506,17 @@ void Application::run() {
             physicsSystem->update(scene, deltaTime, useSpatialGrid, waterWavesEnabled);
         } else if (isBuoyancyScene) {
             physicsSystem->update(scene, deltaTime, false, waterWavesEnabled);
+        } else if (isAIScene) {
+            AISystem::instance().update(scene, deltaTime);
+            if (followPredatorCam) {
+                glm::vec3 predPos(0.0f), predForward(0.0f, 0.0f, 1.0f);
+                if (AISystem::instance().getActivePredatorInfo(predPos, predForward)) {
+                    scene->camera.Position = predPos + glm::vec3(0.0f, 0.6f, 0.0f);
+                    scene->camera.Yaw = glm::degrees(std::atan2(predForward.z, predForward.x));
+                    scene->camera.Pitch = -12.0f;
+                    scene->camera.ProcessMouseMovement(0.0f, 0.0f);
+                }
+            }
         }
 
         renderer->renderScene(scene, useNormalMap, tessLevel, explosionFactor, pSpread, pSize, pCount, shadowBias, pcfRadius, isCollisionDemo, debugBuoyancy, gbufferVisualisationMode, waterWavesEnabled, waterDebugMode);

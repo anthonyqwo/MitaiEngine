@@ -48,8 +48,8 @@ void main() {
     if (abs(impulseVelocity) < 0.00035) {
         impulseVelocity = 0.0;
     }
-    float nextCurr = clamp(curr + impulseVelocity * 0.022, -limit, limit);
-    float nextPrev = clamp(prev - impulseVelocity * 0.66, -limit, limit);
+    float nextCurr = clamp(curr + impulseVelocity * 0.35, -limit, limit);
+    float nextPrev = clamp(prev + impulseVelocity * 0.28, -limit, limit);
 
     imageStore(u_currHeight, p, vec4(nextCurr, 0.0, 0.0, 1.0));
     imageStore(u_prevHeight, p, vec4(nextPrev, 0.0, 0.0, 1.0));

@@ -184,17 +184,17 @@ float waterSparkleNoise(vec2 worldXZ, vec3 normalWorld) {
 }
 
 vec3 sampleScrollingWaterNormal(vec2 uv) {
-    float flowPulse = sin(time * 0.34) * 0.024;
-    vec2 uv1 = uv * 0.46 + vec2(time * 0.034, time * 0.015 + flowPulse);
-    vec2 uv2 = uv * 1.02 + vec2(time * -0.048, time * 0.034 - flowPulse);
+    float flowPulse = sin(time * 0.28) * 0.015;
+    vec2 uv1 = uv * 0.35 + vec2(time * 0.025, time * 0.012 + flowPulse);
+    vec2 uv2 = uv * 0.85 + vec2(time * -0.038, time * 0.028 - flowPulse);
 
     vec3 n1 = texture(normalMap, uv1).rgb * 2.0 - 1.0;
     vec3 n2 = texture(normalMap, uv2).rgb * 2.0 - 1.0;
 
-    vec2 slope1 = n1.xy / max(n1.z, 0.28);
-    vec2 slope2 = n2.xy / max(n2.z, 0.28);
-    vec2 slope = (slope1 + slope2 * 0.34) * (0.92 * clamp(u_waterNormalStrength, 0.0, 1.35) * clamp(u_normalStrength, 0.0, 2.0) * max(u_waveSteepness, 0.1));
-    slope = clamp(slope, vec2(-0.62), vec2(0.62));
+    vec2 slope1 = n1.xy / max(n1.z, 0.15);
+    vec2 slope2 = n2.xy / max(n2.z, 0.15);
+    vec2 slope = (slope1 * 0.55 + slope2 * 0.45) * (1.20 * clamp(u_waterNormalStrength, 0.0, 2.5) * clamp(u_normalStrength, 0.0, 2.0));
+    slope = clamp(slope, vec2(-0.80), vec2(0.80));
 
     return normalize(vec3(slope, 1.0));
 }
@@ -400,37 +400,34 @@ void main() {
     float alpha = 1.0;
     if (isWater) {
         vec3 shallowTint = vec3(0.20, 0.62, 0.66);
-        vec3 midTint = vec3(0.10, 0.42, 0.50);
-        vec3 deepTint = vec3(0.025, 0.18, 0.27);
-        vec3 scatterTint = mix(shallowTint, midTint, smoothstep(0.0, 0.55, waterDepthBlend));
-        scatterTint = mix(scatterTint, deepTint, smoothstep(0.42, 1.0, waterDepthBlend) * 0.62);
+        vec3 deepTint = vec3(0.015, 0.12, 0.22);
+        vec3 scatterTint = mix(shallowTint, deepTint, smoothstep(0.0, 15.0, waterDepth));
         scatterTint = mix(scatterTint, vec3(0.72, 0.95, 0.98), waveCrest * 0.24);
+
+        vec3 volumeScatter = scatterTint * (vec3(1.0) - waterTransmission);
 
         float waterR = clamp(u_waterRoughness, 0.02, 0.95);
         vec3 skyReflection = textureLod(prefilterMap, R, mix(0.0, 3.25, waterR)).rgb;
         skyReflection = pow(max(skyReflection, vec3(0.0)), vec3(1.0 / 2.2));
         skyReflection = max(skyReflection, u_skyReflectionColor * (0.24 + waterFresnel * 0.55));
         vec3 crestHighlight = vec3(0.72, 0.86, 0.95) * (waveCrest * (0.14 + waterFresnel * 0.32 + waterSparkle * 0.08) * u_reflectionStrength);
-        vec3 reflectionTint = skyReflection + crestHighlight;
-        vec3 attenuatedTransmission = scatterTint * mix(vec3(1.0), waterTransmission, 0.32);
-        vec3 scatteredVolume = mix(attenuatedTransmission, scatterTint, waterFog * 0.42);
-        color = mix(scatteredVolume, color, 0.22);
-        float reflectionAmount = clamp((0.12 + waterFresnel * 0.68 + waveCrest * 0.08 + waveSlope * 0.04) * u_reflectionStrength, 0.0, 0.78);
-        color = mix(color, reflectionTint, reflectionAmount);
+        vec3 reflectionTint = skyReflection * u_reflectionStrength + crestHighlight;
+
         vec3 specularHighlight = waterSpecularAdd / (waterSpecularAdd + vec3(1.6));
         specularHighlight = pow(max(specularHighlight, vec3(0.0)), vec3(1.0 / 2.2));
-        color += specularHighlight * (0.34 + waterFresnel * 0.82 + waterSparkle * 0.12);
-        color = min(color, vec3(1.12));
-        color *= mix(1.08, 0.82, waterAbsorption);
 
-        float baseAlpha = 0.62;
-        float depthAlpha = smoothstep(0.2, 10.0, waterDepth) * 0.26;
-        alpha = mix(baseAlpha + depthAlpha, 0.94, waterFresnel);
-        alpha += waterFog * 0.12 + waterAbsorption * 0.10 + waveCrest * 0.08 + waveSlope * 0.04;
-        alpha = clamp(alpha, 0.58, 0.97);
+        color = mix(volumeScatter, reflectionTint, waterFresnel) + specularHighlight * (0.34 + waterFresnel * 0.82 + waterSparkle * 0.12);
+        color = clamp(color, vec3(0.0), vec3(1.12));
+
+        float volumeOpacity = 1.0 - dot(waterTransmission, vec3(0.2126, 0.7152, 0.0722));
+        alpha = mix(volumeOpacity, 1.0, waterFresnel);
+        alpha = clamp(alpha, 0.20, 0.98);
+
         if (u_isInternalBoxWater) {
             alpha *= clamp(u_internalWaterAlpha, 0.0, 1.0);
         }
+
+        float reflectionAmount = waterFresnel;
 
         if (u_waterDebugMode == 1) {
             FragColor = vec4(vec3(alpha), 1.0);

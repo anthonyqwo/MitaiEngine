@@ -24,7 +24,7 @@ void Scene::update(float deltaTime, float currentTime, bool light2Moving) {
     }
 }
 
-void Scene::processCollisions(glm::vec3 movement) {
+bool Scene::processCollisions(glm::vec3 movement) {
     auto checkCollisions = [&]() -> bool {
         AABB camAABB(camera.Position - glm::vec3(camera.collisionRadius), camera.Position + glm::vec3(camera.collisionRadius));
         for (const auto& e : entities) {
@@ -40,9 +40,15 @@ void Scene::processCollisions(glm::vec3 movement) {
     camera.Position.x += movement.x;
     if (checkCollisions()) camera.Position.x -= movement.x; 
     
+    bool collidedY = false;
     camera.Position.y += movement.y;
-    if (checkCollisions()) camera.Position.y -= movement.y; 
+    if (checkCollisions()) {
+        camera.Position.y -= movement.y;
+        collidedY = true;
+    }
     
     camera.Position.z += movement.z;
     if (checkCollisions()) camera.Position.z -= movement.z; 
+
+    return collidedY;
 }

@@ -94,6 +94,15 @@ struct Entity {
     glm::vec3 localGrabOffset = glm::vec3(0.0f);
     glm::vec3 targetGrabWorld = glm::vec3(0.0f);
 
+    // AI Engine metadata extension (HW9)
+    bool isAI = false;
+    int aiRole = 0;      // 0=Prey, 1=Predator
+    int aiSpecies = 0;   // 0=Green, 1=Blue, 2=Predator1, 3=Predator2
+    int aiState = 0;     // Wander, Flee, Search, Chase
+    float aiVisionRange = 0.0f;
+    float aiVisionFOV = 0.0f;
+    std::vector<glm::vec3> aiPath; // copy for debug renderer
+
     Entity(std::string n, EntityType t, glm::vec3 pos = glm::vec3(0.0f), glm::vec3 col = glm::vec3(1.0f))
         : name(n), type(t), position(pos), rotation(0.0f), scale(1.0f), color(col), originalColor(col) {}
         

@@ -6,12 +6,10 @@
 #include <string>
 #include <vector>
 
-
 #include "Model.h"
 #include "PhysicsSystem.h"
 #include "Renderer.h"
 #include "Scene.h"
-
 
 class Application {
 public:
@@ -23,6 +21,7 @@ public:
   void loadCollisionDemoScene();
   void loadWorldScene();
   void loadBuoyancyScene(int scenario);
+  void loadAIHuntingScene();
   void run();
 
 private:
@@ -55,6 +54,11 @@ private:
 
   bool isCollisionDemo = false;
   bool isBuoyancyScene = false;
+  bool isAIScene = true;
+  bool followPredatorCam = false;
+  bool enablePlayerGravity = true;
+  float cameraVelocityY = 0.0f;
+  bool cameraIsGrounded = false;
   bool debugBuoyancy = false;
   bool waterWavesEnabled = true;
   int currentScenario = 0;

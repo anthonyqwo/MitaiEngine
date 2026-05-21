@@ -919,16 +919,29 @@ void Renderer::renderEntitiesToGBuffer(Shader* shader, const std::vector<Entity>
 
         if (e.type == FLOOR) {
             glBindVertexArray(floorVAO); 
+            bool isAIFloor = (e.name == "Floor" && glm::abs(e.roughness - 0.70f) < 0.01f && glm::abs(e.metallic - 0.05f) < 0.01f && glm::abs(e.reflectivity - 0.05f) < 0.01f);
+            unsigned int floorNormTex = isAIFloor ? flatNormalTex : ResourceManager::getTexture("floorNorm");
             glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("floorDiff"));
-            glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, ResourceManager::getTexture("floorNorm"));
+            glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, floorNormTex);
             glDrawArrays(GL_TRIANGLES, 0, 18);
         } else if (e.type == CUBE) {
             glBindVertexArray(cubeVAO);
-            glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, entityTexture(e.albedoTexture, "texDiff"));
-            glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, entityTexture(e.normalTexture, "texNorm"));
-            glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, entityTexture(e.metallicTexture, "texSpec"));
-            glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, entityTexture(e.roughnessTexture, "whiteTex"));
-            glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, entityTexture(e.aoTexture, "whiteTex"));
+            bool isGlassWall = (e.name.rfind("wall_", 0) == 0 || 
+                                e.name.rfind("obstacle_", 0) == 0 || 
+                                e.name.rfind("platform_", 0) == 0 ||
+                                e.name.rfind("Predator_", 0) == 0);
+            
+            unsigned int albTex = isGlassWall ? whiteTex : entityTexture(e.albedoTexture, "texDiff");
+            unsigned int normTex = isGlassWall ? flatNormalTex : entityTexture(e.normalTexture, "texNorm");
+            unsigned int metTex = isGlassWall ? whiteTex : entityTexture(e.metallicTexture, "texSpec");
+            unsigned int roughTex = isGlassWall ? whiteTex : entityTexture(e.roughnessTexture, "whiteTex");
+            unsigned int aoTex = isGlassWall ? whiteTex : entityTexture(e.aoTexture, "whiteTex");
+            
+            glActiveTexture(GL_TEXTURE10); glBindTexture(GL_TEXTURE_2D, albTex);
+            glActiveTexture(GL_TEXTURE11); glBindTexture(GL_TEXTURE_2D, normTex);
+            glActiveTexture(GL_TEXTURE12); glBindTexture(GL_TEXTURE_2D, metTex);
+            glActiveTexture(GL_TEXTURE13); glBindTexture(GL_TEXTURE_2D, roughTex);
+            glActiveTexture(GL_TEXTURE14); glBindTexture(GL_TEXTURE_2D, aoTex);
             
             if (e.buoyancyType == 2) {
                 // Hollow open-top box rendering: Draw 5 walls in local space

@@ -54,8 +54,8 @@ vec3 sampleRippleNormal(vec2 worldXZ) {
     float hR = sampleRippleHeightVisual(worldXZ + vec2(stepSize, 0.0));
     float hD = sampleRippleHeightVisual(worldXZ - vec2(0.0, stepSize));
     float hU = sampleRippleHeightVisual(worldXZ + vec2(0.0, stepSize));
-    float strength = clamp(u_rippleNormalStrength, 0.0, 1.25);
-    vec2 slope = clamp(vec2(hR - hL, hU - hD) * strength, vec2(-0.13), vec2(0.13));
+    float strength = clamp(u_rippleNormalStrength, 0.0, 2.5);
+    vec2 slope = clamp(vec2(hR - hL, hU - hD) * strength, vec2(-0.45), vec2(0.45));
     return normalize(vec3(-slope.x, 2.0 * stepSize, -slope.y));
 }
 
@@ -66,8 +66,8 @@ vec3 sampleRippleNormalSmoothed(vec2 worldXZ) {
     float hR = sampleRippleHeightSmoothed(worldXZ + vec2(stepSize, 0.0));
     float hD = sampleRippleHeightSmoothed(worldXZ - vec2(0.0, stepSize));
     float hU = sampleRippleHeightSmoothed(worldXZ + vec2(0.0, stepSize));
-    float strength = clamp(u_rippleNormalStrength * 0.82, 0.0, 1.0);
-    vec2 slope = clamp(vec2(hR - hL, hU - hD) * strength, vec2(-0.09), vec2(0.09));
+    float strength = clamp(u_rippleNormalStrength * 0.82, 0.0, 2.0);
+    vec2 slope = clamp(vec2(hR - hL, hU - hD) * strength, vec2(-0.35), vec2(0.35));
     return normalize(vec3(-slope.x, 2.0 * stepSize, -slope.y));
 }
 

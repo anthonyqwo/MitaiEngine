@@ -36,9 +36,9 @@ void main() {
     float hNext = h + velocity + u_cfl * laplacian;
     float neighborAverage = (hL + hR + hD + hU) * 0.25;
     float gaussian = (h * 4.0 + (hL + hR + hD + hU) * 2.0 + hLD + hRD + hLU + hRU) / 16.0;
-    hNext = mix(hNext, neighborAverage, 0.008);
-    hNext = mix(hNext, gaussian, 0.020);
-    hNext -= h * 0.0018;
+    hNext = mix(hNext, neighborAverage, 0.003);
+    hNext = mix(hNext, gaussian, 0.006);
+    hNext -= h * 0.0006;
 
     float edgeDistance = min(min(p.x, p.y), min(u_resolution - 1 - p.x, u_resolution - 1 - p.y));
     float edgeFade = smoothstep(0.0, 10.0, edgeDistance);

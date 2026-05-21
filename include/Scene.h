@@ -19,7 +19,7 @@ public:
     Scene();
     void addEntity(const Entity& e);
     void update(float deltaTime, float currentTime, bool light2Moving);
-    void processCollisions(glm::vec3 movement);
+    bool processCollisions(glm::vec3 movement);
 };
 
 #endif
