@@ -10,6 +10,8 @@
 #include <GLFW/glfw3.h>
 #include "Geometry.h"
 #include "Model.h"
+#include "AISystem.h"
+
 
 Renderer::Renderer(unsigned int scrWidth, unsigned int scrHeight) 
     : SCR_WIDTH(scrWidth), SCR_HEIGHT(scrHeight) {
@@ -836,6 +838,12 @@ void Renderer::renderScene(Scene* scene, bool useNormalMap, float tessLevel, flo
                 drawDebugArrow(glm::vec3(p.x, 4.02f, p.z), glm::vec3(p.x, 4.02f + impulse.strength * 4.0f, p.z), color, vp.view, vp.proj);
             }
         }
+
+        // 5. AI Debug Overlay (Vision Cones, Paths, Navigation Grid)
+        if (AISystem::instance().isDebugEnabled()) {
+            AISystem::instance().drawDebug(this, scene);
+        }
+
         glDisable(GL_BLEND);
     }
 

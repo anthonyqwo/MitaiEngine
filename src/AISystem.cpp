@@ -393,7 +393,7 @@ void AISystem::updateFSM(AIAgent& agent, float deltaTime, Scene* scene) {
     agent.repathTimer -= deltaTime;
     
     // Stuck recovery: if stuck in WANDER/SEARCH, force immediately selecting a new wander path
-    if (agent.stuckTimer >= 1.5f && (agent.state == WANDER || agent.state == SEARCH)) {
+    if (agent.stuckTimer >= 1.0f && (agent.state == WANDER || agent.state == SEARCH)) {
         agent.wanderTimer = 0.0f;
         agent.path.clear();
     }
@@ -440,18 +440,30 @@ void AISystem::updateFSM(AIAgent& agent, float deltaTime, Scene* scene) {
             } else if (agent.wanderTimer <= 0.0f) {
                 // Pick random walkable cell within 5 meters
                 glm::vec3 dest = agent.position;
-                for (int attempts = 0; attempts < 10; ++attempts) {
-                    float rx = ((float)(std::rand() % 200) / 100.0f - 1.0f) * 6.0f;
-                    float rz = ((float)(std::rand() % 200) / 100.0f - 1.0f) * 6.0f;
+                bool found = false;
+                for (int attempts = 0; attempts < 30; ++attempts) {
+                    float rx = ((float)(std::rand() % 200) / 100.0f - 1.0f) * 7.0f;
+                    float rz = ((float)(std::rand() % 200) / 100.0f - 1.0f) * 7.0f;
                     glm::vec3 testPos = agent.position + glm::vec3(rx, 0.0f, rz);
-                    if (m_grid.isWalkable(testPos.x, testPos.z)) {
+                    if (m_grid.isWalkable(testPos.x, testPos.z) && glm::distance(agent.position, testPos) > 1.5f) {
                         dest = testPos;
+                        found = true;
                         break;
                     }
                 }
+                
+                // Fallback to random global walkable position if local search failed
+                if (!found) {
+                    dest = m_grid.getRandomWalkablePosition();
+                }
+                
                 agent.path = m_grid.findPath(agent.position, dest);
-                agent.currentWaypointIndex = 0;
-                agent.wanderTimer = 3.0f + (float)(std::rand() % 200) / 100.0f;
+                if (agent.path.empty()) {
+                    agent.wanderTimer = 0.0f; // Force selecting again next frame rather than idling
+                } else {
+                    agent.currentWaypointIndex = 0;
+                    agent.wanderTimer = 3.0f + (float)(std::rand() % 200) / 100.0f;
+                }
             }
         } else if (agent.state == FLEE) {
             if (visibleThreats.empty()) {
@@ -499,11 +511,46 @@ void AISystem::updateFSM(AIAgent& agent, float deltaTime, Scene* scene) {
                 agent.path.clear();
                 agent.repathTimer = 0.0f;
             } else if (agent.wanderTimer <= 0.0f) {
-                // Wide searches through different rooms!
-                glm::vec3 dest = m_grid.getRandomWalkablePosition();
+                // Hybrid Wide Search Pattern: mix of long-range room transit and local room scouting
+                glm::vec3 dest = agent.position;
+                std::vector<glm::vec3> candidates;
+                for (int i = 0; i < 5; ++i) {
+                    candidates.push_back(m_grid.getRandomWalkablePosition());
+                }
+                
+                if (!candidates.empty()) {
+                    if (std::rand() % 100 < 70) {
+                        // 70% probability: Long-range transit (furthest point) to cross different rooms
+                        float maxDist = -1.0f;
+                        for (const auto& p : candidates) {
+                            float d = glm::distance(agent.position, p);
+                            if (d > maxDist) {
+                                maxDist = d;
+                                dest = p;
+                            }
+                        }
+                    } else {
+                        // 30% probability: Medium-range local room search
+                        float bestDiff = 1e9f;
+                        float targetDist = 8.0f + (float)(std::rand() % 40) / 10.0f; // 8m to 12m
+                        for (const auto& p : candidates) {
+                            float d = glm::distance(agent.position, p);
+                            float diff = std::abs(d - targetDist);
+                            if (diff < bestDiff) {
+                                bestDiff = diff;
+                                dest = p;
+                            }
+                        }
+                    }
+                }
+                
                 agent.path = m_grid.findPath(agent.position, dest);
-                agent.currentWaypointIndex = 0;
-                agent.wanderTimer = 5.0f + (float)(std::rand() % 300) / 100.0f;
+                if (agent.path.empty()) {
+                    agent.wanderTimer = 0.0f; // Force retry
+                } else {
+                    agent.currentWaypointIndex = 0;
+                    agent.wanderTimer = 5.0f + (float)(std::rand() % 300) / 100.0f;
+                }
             }
         } else if (agent.state == CHASE) {
             // Check if target still exists and is visible
@@ -516,11 +563,41 @@ void AISystem::updateFSM(AIAgent& agent, float deltaTime, Scene* scene) {
             }
             
             if (!preyTarget) {
-                // Prey is lost or captured
+                // Prey is lost or captured. Check if it escaped (still visible in scene but out of our immediate sight)
+                bool escaped = false;
+                glm::vec3 lastSeenPos(0.0f);
+                for (const auto& other : m_agents) {
+                    if (other.entityName == agent.targetEntityName) {
+                        for (const auto& ent : scene->entities) {
+                            if (ent.name == other.entityName && ent.visible) {
+                                escaped = true;
+                                lastSeenPos = other.position;
+                                break;
+                            }
+                        }
+                        break;
+                    }
+                }
+                
                 agent.state = SEARCH;
                 agent.targetEntityName = "";
-                agent.wanderTimer = 0.0f;
-                agent.path.clear();
+                
+                if (escaped && glm::distance(agent.position, lastSeenPos) > 1.5f) {
+                    // Investigate Last Known Position of the escaped prey
+                    agent.path = m_grid.findPath(agent.position, lastSeenPos);
+                    if (!agent.path.empty()) {
+                        agent.currentWaypointIndex = 0;
+                        agent.wanderTimer = 4.0f + (float)(std::rand() % 200) / 100.0f;
+                        std::cout << "[AI System] " << agent.entityName << " lost sight of prey. Investigating Last Known Position at (" 
+                                  << lastSeenPos.x << ", " << lastSeenPos.z << ")" << std::endl;
+                    } else {
+                        agent.wanderTimer = 0.0f;
+                        agent.path.clear();
+                    }
+                } else {
+                    agent.wanderTimer = 0.0f;
+                    agent.path.clear();
+                }
             } else {
                 // Periodically update path to prey if out of direct sightline
                 if (agent.repathTimer <= 0.0f) {
@@ -619,8 +696,11 @@ void AISystem::updateMovement(AIAgent& agent, float deltaTime, Scene* scene) {
                 wp.y = 0.0f;
                 
                 float d = glm::distance(glm::vec2(agent.position.x, agent.position.z), glm::vec2(wp.x, wp.z));
-                if (d < 0.6f) {
+                float acceptRadius = (agent.role == ROLE_PREDATOR) ? 0.7f : 0.5f;
+                // Skip waypoint if we are close enough or if we have been stuck and are reasonably close
+                if (d < acceptRadius || (agent.stuckTimer > 0.5f && d < 1.4f)) {
                     agent.currentWaypointIndex++;
+                    agent.stuckTimer = std::max(0.0f, agent.stuckTimer - 0.4f);
                 }
                 
                 if (agent.currentWaypointIndex < agent.path.size()) {
@@ -645,11 +725,25 @@ void AISystem::updateMovement(AIAgent& agent, float deltaTime, Scene* scene) {
     // Integrate velocity and position
     agent.velocity += steerForce * deltaTime;
     
-    // Nudge force to resolve stuck states
-    if (agent.stuckTimer >= 1.0f) {
-        float angle = (float)(std::rand() % 360) * glm::pi<float>() / 180.0f;
-        glm::vec3 nudge(glm::cos(angle), 0.0f, glm::sin(angle));
-        agent.velocity += nudge * agent.acceleration * 1.5f * deltaTime;
+    // Nudge force to resolve stuck states: push away from adjacent walls
+    if (agent.stuckTimer >= 0.8f) {
+        glm::vec3 nudge(0.0f);
+        glm::ivec2 cell = m_grid.worldToCell(agent.position);
+        for (int dx = -1; dx <= 1; ++dx) {
+            for (int dz = -1; dz <= 1; ++dz) {
+                if (dx == 0 && dz == 0) continue;
+                if (!m_grid.isWalkableCell(cell.x + dx, cell.y + dz)) {
+                    nudge += glm::vec3(-(float)dx, 0.0f, -(float)dz);
+                }
+            }
+        }
+        if (glm::length(nudge) > 0.001f) {
+            nudge = glm::normalize(nudge);
+        } else {
+            float angle = (float)(std::rand() % 360) * glm::pi<float>() / 180.0f;
+            nudge = glm::vec3(glm::cos(angle), 0.0f, glm::sin(angle));
+        }
+        agent.velocity += nudge * agent.acceleration * 2.0f * deltaTime;
     }
     
     if (glm::length(agent.velocity) > agent.maxSpeed) {

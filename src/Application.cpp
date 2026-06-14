@@ -612,6 +612,63 @@ void Application::loadAIHuntingScene() {
     platBridgeW.hasCollision = true;
     scene->addEntity(platBridgeW);
 
+    // === 6. Interior Partition Walls (Sleek Dark Mirror Glass - pure solid color style) ===
+    glm::vec3 wallColor(0.08f, 0.09f, 0.11f); // Dark Slate Gray matching outer walls
+    
+    // North-West vertical wall (leaves 1m gap at z=-15 and z=-5)
+    Entity wallInnerNWV("wall_inner_nw_v", CUBE, glm::vec3(-7.5f, 1.0f, -10.0f), wallColor);
+    wallInnerNWV.scale = glm::vec3(0.5f, 3.0f, 8.0f);
+    wallInnerNWV.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    wallInnerNWV.mass = 0.0f;
+    wallInnerNWV.roughness = 0.02f; wallInnerNWV.metallic = 0.05f; wallInnerNWV.reflectivity = 0.95f;
+    wallInnerNWV.hasCollision = true;
+    scene->addEntity(wallInnerNWV);
+
+    // North-East vertical wall (leaves 1m gap at z=-15 and z=-5)
+    Entity wallInnerNEV("wall_inner_ne_v", CUBE, glm::vec3(7.5f, 1.0f, -10.0f), wallColor);
+    wallInnerNEV.scale = glm::vec3(0.5f, 3.0f, 8.0f);
+    wallInnerNEV.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    wallInnerNEV.mass = 0.0f;
+    wallInnerNEV.roughness = 0.02f; wallInnerNEV.metallic = 0.05f; wallInnerNEV.reflectivity = 0.95f;
+    wallInnerNEV.hasCollision = true;
+    scene->addEntity(wallInnerNEV);
+
+    // South-West vertical wall (leaves 1m gap at z=15 and z=5)
+    Entity wallInnerSWV("wall_inner_sw_v", CUBE, glm::vec3(-7.5f, 1.0f, 10.0f), wallColor);
+    wallInnerSWV.scale = glm::vec3(0.5f, 3.0f, 8.0f);
+    wallInnerSWV.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    wallInnerSWV.mass = 0.0f;
+    wallInnerSWV.roughness = 0.02f; wallInnerSWV.metallic = 0.05f; wallInnerSWV.reflectivity = 0.95f;
+    wallInnerSWV.hasCollision = true;
+    scene->addEntity(wallInnerSWV);
+
+    // South-East vertical wall (leaves 1m gap at z=15 and z=5)
+    Entity wallInnerSEV("wall_inner_se_v", CUBE, glm::vec3(7.5f, 1.0f, 10.0f), wallColor);
+    wallInnerSEV.scale = glm::vec3(0.5f, 3.0f, 8.0f);
+    wallInnerSEV.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    wallInnerSEV.mass = 0.0f;
+    wallInnerSEV.roughness = 0.02f; wallInnerSEV.metallic = 0.05f; wallInnerSEV.reflectivity = 0.95f;
+    wallInnerSEV.hasCollision = true;
+    scene->addEntity(wallInnerSEV);
+
+    // Horizontal West wall (leaves gap at x=-8 to -5 near step)
+    Entity wallInnerWH("wall_inner_w_h", CUBE, glm::vec3(-11.0f, 1.0f, 0.0f), wallColor);
+    wallInnerWH.scale = glm::vec3(6.0f, 3.0f, 0.5f);
+    wallInnerWH.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    wallInnerWH.mass = 0.0f;
+    wallInnerWH.roughness = 0.02f; wallInnerWH.metallic = 0.05f; wallInnerWH.reflectivity = 0.95f;
+    wallInnerWH.hasCollision = true;
+    scene->addEntity(wallInnerWH);
+
+    // Horizontal East wall (leaves gap at x=5 to 8 near step)
+    Entity wallInnerEH("wall_inner_e_h", CUBE, glm::vec3(11.0f, 1.0f, 0.0f), wallColor);
+    wallInnerEH.scale = glm::vec3(6.0f, 3.0f, 0.5f);
+    wallInnerEH.localBounds = AABB(glm::vec3(-0.5f), glm::vec3(0.5f));
+    wallInnerEH.mass = 0.0f;
+    wallInnerEH.roughness = 0.02f; wallInnerEH.metallic = 0.05f; wallInnerEH.reflectivity = 0.95f;
+    wallInnerEH.hasCollision = true;
+    scene->addEntity(wallInnerEH);
+
     // 7. Initialize and setup the AI system
     AISystem::instance().initializeGrid(-15.0f, 15.0f, -15.0f, 15.0f, 1.0f);
     AISystem::instance().setupScene(scene);
